@@ -72,7 +72,7 @@ A comprehensive engineering education platform that helps students learn technic
 | Backend & Auth | Firebase (Firestore, Authentication, FCM) |
 | State Management | Provider + GetX |
 | Navigation | GoRouter |
-| AI Integration | Google Gemini 2.0 Flash |
+| AI Integration | Google Gemini 2.5 Flash |
 | Local Storage | Hive (offline cache) |
 | PDF Generation | `pdf` package |
 | Sharing | `share_plus` package |

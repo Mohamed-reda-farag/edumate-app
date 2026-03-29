@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../models/task_model.dart';
 import 'semester_controller.dart';
 import '../models/study_session_model.dart';
 import '../models/subject_performance_model.dart';
@@ -149,50 +150,41 @@ class ScheduleController extends ChangeNotifier {
   }
 
   Future<void> _autoSkipMissedSessions() async {
-    final now = DateTime.now();
+    final now   = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
- 
+  
     final missed = _weekSessions.where((s) {
       if (s.status != SessionStatus.planned) return false;
- 
+  
       final sessionDay = DateTime(
         s.scheduledDate.year,
         s.scheduledDate.month,
         s.scheduledDate.day,
       );
-
+  
       // أيام سابقة — دائماً فائتة
       if (sessionDay.isBefore(today)) return true;
-
+  
       if (sessionDay.isAtSameMomentAs(today)) {
-        // نحلل وقت نهاية الجلسة من timeSlot
-        final parts = s.timeSlot.split('-');
-        if (parts.length >= 2) {
-          final endParts = parts[1].trim().split(':');
-          if (endParts.isNotEmpty) {
-            final endHour   = int.tryParse(endParts[0]) ?? 23;
-            final endMinute = endParts.length > 1
-                ? int.tryParse(endParts[1]) ?? 59
-                : 0;
-            final sessionEnd = DateTime(
-              now.year, now.month, now.day,
-              endHour, endMinute,
-            );
-            // إضافة هامش 5 دقائق قبل اعتبارها فائتة
-            return now.isAfter(
-              sessionEnd.add(const Duration(minutes: 5)),
-            );
-          }
+        final parsed = TaskModel.parseTimeSlot(s.timeSlot);
+        if (parsed != null) {
+          final sessionEnd = DateTime(
+            now.year, now.month, now.day,
+            parsed.endMin ~/ 60,
+            parsed.endMin % 60,
+          );
+          // إضافة هامش 5 دقائق قبل اعتبارها فائتة
+          return now.isAfter(sessionEnd.add(const Duration(minutes: 5)));
         }
       }
- 
+  
       return false;
     }).toList();
- 
+  
     for (final s in missed) {
       await _attendanceRepo.updateSessionStatus(s.id, SessionStatus.skipped);
     }
- 
+  
     if (missed.isNotEmpty) {
       debugPrint('[ScheduleController] Auto-skipped ${missed.length} missed sessions');
     }
@@ -338,18 +330,23 @@ class ScheduleController extends ChangeNotifier {
   }) async {
     final safeTotalLectures = totalLectures > 0 ? totalLectures : 1;
     final safeAttended = attendedCount.clamp(0, safeTotalLectures);
-
+ 
     try {
       final existing = _performances.cast<SubjectPerformance?>().firstWhere(
             (p) => p?.subjectId == subjectId,
             orElse: () => null,
           );
-
+ 
       final perf = existing != null
           ? existing.copyWith(
               attendedCount: safeAttended,
               totalLectures: safeTotalLectures,
               difficulty: difficulty,
+              // [FIX 1B] الـ baseline يُعيَّن مرة واحدة فقط ولا يتغير لاحقاً
+              // إذا كان موجوداً بالفعل نحتفظ به، وإلا نعيّنه للمرة الأولى
+              initialAttendedCount: existing.initialAttendedCount > 0
+                  ? existing.initialAttendedCount
+                  : safeAttended,
               lastUpdated: DateTime.now(),
             )
           : SubjectPerformance(
@@ -361,11 +358,12 @@ class ScheduleController extends ChangeNotifier {
               totalLectures: safeTotalLectures,
               avgUnderstanding: 3.0,
               studyHoursLogged: 0,
+              initialAttendedCount: safeAttended, // [FIX 1B] baseline جديد
               lastUpdated: DateTime.now(),
             );
-
+ 
       await _scheduleRepo.savePerformance(perf);
-
+ 
       if (existing != null) {
         _performances = _performances
             .map((p) => p.subjectId == subjectId ? perf : p)
@@ -373,7 +371,7 @@ class ScheduleController extends ChangeNotifier {
       } else {
         _performances = [..._performances, perf];
       }
-
+ 
       _error = null;
       notifyListeners();
     } catch (e) {

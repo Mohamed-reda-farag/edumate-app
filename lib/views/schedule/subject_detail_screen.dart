@@ -143,21 +143,32 @@ class _PerformanceTab extends StatelessWidget {
         .where((r) => r.sessionType == 'lec')
         .toList();
 
-    // [FIX 4] نحسب attended من السجلات الفعلية إذا توفرت،
-    // وإلا نعتمد على SubjectPerformance
+    // [FIX 4+5] نحسب attended و elapsed مع مراعاة الـ baseline
+    // (المحاضرات المُدخَّلة في إعداد الفصل قبل بدء التسجيل)
     final int attended;
     final int elapsed;
 
+    // الـ baseline = initialAttendedCount من إعداد الفصل
+    // يمثل المحاضرات المحضورة قبل بدء استخدام التطبيق
+    final baseline = perf?.initialAttendedCount ?? 0;
+
     if (lectureRecords.isNotEmpty) {
-      // من السجلات الفعلية — الأدق
-      attended = lectureRecords
+      // من السجلات الفعلية + الـ baseline
+      final recordAttended = lectureRecords
           .where((r) =>
               r.status == AttendanceStatus.attended ||
               r.status == AttendanceStatus.late)
           .length;
-      elapsed = lectureRecords.length;
+
+      // [FIX 5] attended = السجلات الجديدة + baseline
+      attended = recordAttended + baseline;
+
+      // [FIX 5] elapsed = عدد السجلات الجديدة + baseline
+      // لأن كل محاضرة في الـ baseline كانت منقضية بالفعل
+      elapsed = lectureRecords.length + baseline;
     } else if (perf != null) {
-      // fallback على SubjectPerformance
+      // لا توجد سجلات بعد — نعتمد على SubjectPerformance كاملاً
+      // perf.attendedCount يشمل الـ baseline بالفعل (بعد PATCH 1C)
       attended = perf!.attendedCount + perf!.lateCount;
       elapsed  = _estimateElapsed(perf!);
     } else {

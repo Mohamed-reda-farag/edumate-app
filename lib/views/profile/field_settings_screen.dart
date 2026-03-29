@@ -264,8 +264,15 @@ class _FieldSettingsScreenState extends State<FieldSettingsScreen> {
 
   Future<void> _ensureAllFieldsLoaded(GlobalLearningState globalState) async {
     const int expectedMinFields = 10;
-    if (globalState.allFields.length < expectedMinFields) {
-      await globalState.loadAllFields();
+    final currentCount = globalState.allFields.length;
+    if (currentCount < expectedMinFields) {
+      // عدد المجالات المحملة أقل من المتوقع — الـ cache يحتوي على المجال الأساسي
+      // فقط ولا يعلم بالمجالات الأخرى. نُجبر fetch كامل من Firestore متجاهلاً الـ cache.
+      debugPrint(
+        '⚠️ Only $currentCount fields loaded, expected $expectedMinFields+. '
+        'Force refreshing from Firestore...',
+      );
+      await globalState.loadAllFields(forceRefresh: currentCount > 0);
     }
   }
 

@@ -10,6 +10,7 @@ class SubjectPerformance {
   final int totalLectures;
   final int attendedCount;
   final int lateCount;
+  final int initialAttendedCount;
   final double avgUnderstanding; // 0.0-5.0
   final double studyHoursLogged;
   final DateTime lastUpdated;
@@ -21,6 +22,7 @@ class SubjectPerformance {
     required this.totalLectures,
     required this.attendedCount,
     required this.lateCount,
+    required this.initialAttendedCount,
     required this.avgUnderstanding,
     required this.studyHoursLogged,
     required this.lastUpdated,
@@ -33,6 +35,7 @@ class SubjectPerformance {
     required int totalLectures,
     required int attendedCount,
     required int lateCount,
+    int initialAttendedCount = 0,
     required double avgUnderstanding,
     required double studyHoursLogged,
     required DateTime lastUpdated,
@@ -51,6 +54,10 @@ class SubjectPerformance {
     if (studyHoursLogged < 0) {
       throw ArgumentError('studyHoursLogged must be >= 0');
     }
+
+    if (initialAttendedCount < 0) {
+      throw ArgumentError('initialAttendedCount must be >= 0');
+    }
     assert(
       totalLectures == 0 || attendedCount + lateCount <= totalLectures,
       '[SubjectPerformance] attended ($attendedCount) + late ($lateCount) = '
@@ -58,12 +65,12 @@ class SubjectPerformance {
       'Check for race condition or stale data.',
     );
 
-    final safeAttended = totalLectures == 0
-        ? 0
-        : attendedCount.clamp(0, totalLectures);
-    final safeLate = totalLectures == 0
-        ? 0
-        : lateCount.clamp(0, totalLectures - safeAttended);
+    final safeAttended =
+        totalLectures == 0 ? 0 : attendedCount.clamp(0, totalLectures);
+    final safeLate =
+        totalLectures == 0
+            ? 0
+            : lateCount.clamp(0, totalLectures - safeAttended);
 
     // تحذير إضافي في debug mode إذا فُقدت قيمة lateCount
     if (kDebugMode &&
@@ -83,6 +90,7 @@ class SubjectPerformance {
       totalLectures: totalLectures,
       attendedCount: safeAttended,
       lateCount: safeLate,
+      initialAttendedCount: initialAttendedCount,
       avgUnderstanding: avgUnderstanding,
       studyHoursLogged: studyHoursLogged,
       lastUpdated: lastUpdated,
@@ -96,9 +104,8 @@ class SubjectPerformance {
 
   double priorityScoreWithSemester(AcademicSemester? semester) {
     final exam = semester?.nextExamFor(subjectId);
-    final daysUntilExam = exam != null
-        ? exam.daysUntilExam.clamp(0, 30).toDouble()
-        : 15.0;
+    final daysUntilExam =
+        exam != null ? exam.daysUntilExam.clamp(0, 30).toDouble() : 15.0;
 
     return (1 - attendanceRate) * 25 +
         (1 - avgUnderstanding / 5) * 20 +
@@ -112,9 +119,10 @@ class SubjectPerformance {
 
   factory SubjectPerformance.fromJson(Map<String, dynamic> json) {
     final rawDate = json['lastUpdated'];
-    final lastUpdated = rawDate is Timestamp
-        ? rawDate.toDate()
-        : DateTime.parse(rawDate as String);
+    final lastUpdated =
+        rawDate is Timestamp
+            ? rawDate.toDate()
+            : DateTime.parse(rawDate as String);
 
     return SubjectPerformance(
       subjectId: json['subjectId'] as String,
@@ -123,6 +131,7 @@ class SubjectPerformance {
       totalLectures: json['totalLectures'] as int,
       attendedCount: json['attendedCount'] as int,
       lateCount: json['lateCount'] as int,
+      initialAttendedCount: json['initialAttendedCount'] as int? ?? 0,
       avgUnderstanding: (json['avgUnderstanding'] as num).toDouble(),
       studyHoursLogged: (json['studyHoursLogged'] as num).toDouble(),
       lastUpdated: lastUpdated,
@@ -130,18 +139,19 @@ class SubjectPerformance {
   }
 
   Map<String, dynamic> toJson() => {
-        'subjectId': subjectId,
-        'subjectName': subjectName,
-        'difficulty': difficulty,
-        'totalLectures': totalLectures,
-        'attendedCount': attendedCount,
-        'lateCount': lateCount,
-        'avgUnderstanding': avgUnderstanding,
-        'studyHoursLogged': studyHoursLogged,
-        'lastUpdated': Timestamp.fromDate(lastUpdated),
-    };
+    'subjectId': subjectId,
+    'subjectName': subjectName,
+    'difficulty': difficulty,
+    'totalLectures': totalLectures,
+    'attendedCount': attendedCount,
+    'lateCount': lateCount,
+    'initialAttendedCount': initialAttendedCount,
+    'avgUnderstanding': avgUnderstanding,
+    'studyHoursLogged': studyHoursLogged,
+    'lastUpdated': Timestamp.fromDate(lastUpdated),
+  };
 
-    /// للـ SharedPreferences cache فقط — lastUpdated كـ ISO string
+  /// للـ SharedPreferences cache فقط — lastUpdated كـ ISO string
   Map<String, dynamic> toJsonForCache() => {
     'subjectId': subjectId,
     'subjectName': subjectName,
@@ -149,6 +159,7 @@ class SubjectPerformance {
     'totalLectures': totalLectures,
     'attendedCount': attendedCount,
     'lateCount': lateCount,
+    'initialAttendedCount': initialAttendedCount,
     'avgUnderstanding': avgUnderstanding,
     'studyHoursLogged': studyHoursLogged,
     'lastUpdated': lastUpdated.toIso8601String(),
@@ -161,6 +172,7 @@ class SubjectPerformance {
     int? totalLectures,
     int? attendedCount,
     int? lateCount,
+    int? initialAttendedCount,
     double? avgUnderstanding,
     double? studyHoursLogged,
     DateTime? lastUpdated,
@@ -172,6 +184,7 @@ class SubjectPerformance {
       totalLectures: totalLectures ?? this.totalLectures,
       attendedCount: attendedCount ?? this.attendedCount,
       lateCount: lateCount ?? this.lateCount,
+      initialAttendedCount: initialAttendedCount ?? this.initialAttendedCount,
       avgUnderstanding: avgUnderstanding ?? this.avgUnderstanding,
       studyHoursLogged: studyHoursLogged ?? this.studyHoursLogged,
       lastUpdated: lastUpdated ?? this.lastUpdated,
@@ -195,16 +208,16 @@ class SubjectPerformance {
 
   @override
   int get hashCode => Object.hash(
-        subjectId,
-        subjectName,
-        difficulty,
-        totalLectures,
-        attendedCount,
-        lateCount,
-        avgUnderstanding,
-        studyHoursLogged,
-        lastUpdated,
-      );
+    subjectId,
+    subjectName,
+    difficulty,
+    totalLectures,
+    attendedCount,
+    lateCount,
+    avgUnderstanding,
+    studyHoursLogged,
+    lastUpdated,
+  );
 
   @override
   String toString() =>

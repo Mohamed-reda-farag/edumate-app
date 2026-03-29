@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import 'task_model.dart';
+
 enum SessionType { review, practice, explain, activate }
 
 enum SessionStatus { planned, completed, skipped }
@@ -258,25 +260,20 @@ class StudySession {
 
   bool get hasStarted {
     final now = DateTime.now();
-
-    // نستخرج وقت البداية من الـ timeSlot (مثال: "8:00-10:00")
-    final parts = timeSlot.split('-');
-    if (parts.isNotEmpty) {
-      final startParts = parts[0].trim().split(':');
-      if (startParts.length >= 2) {
-        final startHour   = int.tryParse(startParts[0]) ?? 0;
-        final startMinute = int.tryParse(startParts[1]) ?? 0;
-        final sessionStart = DateTime(
-          scheduledDate.year,
-          scheduledDate.month,
-          scheduledDate.day,
-          startHour,
-          startMinute,
-        );
-        return !now.isBefore(sessionStart);
-      }
+  
+    // يدعم "8-10" و"8:00-10:00" و"9:30-11:00" بشكل موحّد وآمن
+    final parsed = TaskModel.parseTimeSlot(timeSlot);
+    if (parsed != null) {
+      final sessionStart = DateTime(
+        scheduledDate.year,
+        scheduledDate.month,
+        scheduledDate.day,
+        parsed.startMin ~/ 60,
+        parsed.startMin % 60,
+      );
+      return !now.isBefore(sessionStart);
     }
-
+  
     // fallback: إذا فشل parsing نتحقق من بداية اليوم فقط
     final sessionDay = DateTime(
       scheduledDate.year,

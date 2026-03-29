@@ -215,8 +215,11 @@ void main() async {
     globalLearningState.onCourseProgressChangedCallback = () => 
         taskController.syncAllCourseTasks();
 
-    scheduleController.onScheduleChanged = () =>
-        taskController.forceDailySync();
+    scheduleController.onScheduleChanged = () async {
+      // 1. مزامنة المهام الدراسية (محاضرات + جلسات)
+      await taskController.forceDailySync();
+      await taskController.syncAllCourseTasks();
+    };
 
     scheduleController.onStudyPlanMissing = () =>
         notificationController.onStudyPlanMissing();

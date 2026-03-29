@@ -2793,20 +2793,20 @@ class _LessonsList extends StatelessWidget {
   bool _canMark(int index) => _canMarkLesson(cp, courseDuration, index);
 
   String _lockReason(int index) {
-    final hours = _parsedHours();
-    final minutesPerLesson = ((hours * 60) / cp.totalLessons).clamp(
-      20.0,
-      180.0,
-    );
-    final minutesElapsed =
-        DateTime.now().difference(cp.lastAccessedAt).inMinutes;
-    final remaining = (minutesPerLesson - minutesElapsed).ceil();
-    if (remaining <= 0) return '';
-    if (remaining < 60) return 'متاح بعد $remaining دقيقة';
-    final h = remaining ~/ 60;
-    final m = remaining % 60;
-    return m > 0 ? 'متاح بعد $hس $mد' : 'متاح بعد $h ساعة';
-  }
+  final hours = _parsedHours();
+  final minutesPerLesson = ((hours * 60) / cp.totalLessons).clamp(20.0, 180.0);
+ 
+  // lastLessonUnlockedAt هو التاريخ الصحيح لحساب الوقت المتبقي
+  final reference = cp.lastLessonUnlockedAt ?? cp.lastAccessedAt;
+  final minutesElapsed = DateTime.now().difference(reference).inMinutes;
+ 
+  final remaining = (minutesPerLesson - minutesElapsed).ceil();
+  if (remaining <= 0) return '';
+  if (remaining < 60) return 'متاح بعد $remaining دقيقة';
+  final h = remaining ~/ 60;
+  final m = remaining % 60;
+  return m > 0 ? 'متاح بعد $hس $mد' : 'متاح بعد $h ساعة';
+}
 
   @override
   Widget build(BuildContext context) {

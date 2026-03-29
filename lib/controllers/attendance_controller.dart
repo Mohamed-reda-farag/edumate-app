@@ -138,15 +138,15 @@ class AttendanceController extends ChangeNotifier {
     _suppressCount++;
     try {
       await _attendanceRepo.addRecord(record);
-
+ 
       final list = List<AttendanceRecord>.from(
         _recordsBySubject[record.subjectId] ?? [],
       );
       list.insert(0, record);
       _recordsBySubject[record.subjectId] = list;
-
+ 
       await _recalculatePerformance(record.subjectId);
-
+ 
       if (_gamification == null) {
         _error = 'لم يتم تحميل بيانات النقاط، لن تُحتسب النقاط';
       } else {
@@ -154,18 +154,38 @@ class AttendanceController extends ChangeNotifier {
           _gamification!,
           record,
         );
-
-        final allRecords = _recordsBySubject.values.expand((r) => r).toList();
+ 
+        final totalLoadedRecords =
+            _recordsBySubject.values.expand((r) => r).length;
+ 
+        if (totalLoadedRecords < 10) {
+          final subjects =
+              _semesterController.activeSemester?.subjects ?? [];
+          for (final subject in subjects) {
+            if (_recordsBySubject.containsKey(subject.id)) continue;
+            try {
+              final recs =
+                  await _attendanceRepo.getRecordsBySubject(subject.id);
+              _recordsBySubject[subject.id] = recs;
+            } catch (_) {
+              // تجاهل الخطأ — نكمل بما لدينا
+            }
+          }
+        }
+ 
+        final allRecords =
+            _recordsBySubject.values.expand((r) => r).toList();
+ 
         gam = _gamificationService.checkAndUnlockAchievements(
           gam,
           allRecords,
           _todaySessions,
         );
-
+ 
         await _attendanceRepo.updateGamification(gam);
         _gamification = gam;
       }
-
+ 
       _error = null;
     } catch (e) {
       _error = e.toString();
@@ -310,85 +330,81 @@ class AttendanceController extends ChangeNotifier {
     try {
       final records = _recordsBySubject[subjectId] ?? [];
       if (records.isEmpty) return;
-
+ 
       final existing = await _scheduleRepo.getPerformance(subjectId);
       final totalLectures =
           _semesterController.activeSemester?.totalLecturesPerSubject ??
           records.length;
-
+ 
       // ── المحاضرات فقط لحساب attendedCount و lateCount ────────────────
       final lectureRecords =
           records.where((r) => r.sessionType == 'lec').toList();
-
-      int attendedCount = 0;
-      int lateCount = 0;
-
+ 
+      int recordAttended = 0;
+      int recordLate     = 0;
+ 
       for (final r in lectureRecords) {
         if (r.status == AttendanceStatus.attended) {
-          attendedCount++;
+          recordAttended++;
         } else if (r.status == AttendanceStatus.late) {
-          // دائماً يُحسب ضمن lateCount بغض النظر عن مدة التأخر
-          lateCount++;
+          recordLate++;
         }
       }
+      final baseline      = existing?.initialAttendedCount ?? 0;
+      final attendedCount = recordAttended + baseline;
+      final lateCount     = recordLate;
 
       // ── avgUnderstanding من كل الأنواع مع تأثير التأخر ───────────────
-      final allRatedRecords =
-          records
-              .where(
-                (r) =>
-                    r.understandingRating != null &&
-                    (r.status == AttendanceStatus.attended ||
-                        r.status == AttendanceStatus.late),
-              )
-              .toList();
-
+      final allRatedRecords = records
+          .where(
+            (r) =>
+                r.understandingRating != null &&
+                (r.status == AttendanceStatus.attended ||
+                    r.status == AttendanceStatus.late),
+          )
+          .toList();
+ 
       double totalRating = 0;
       double totalWeight = 0;
-
+ 
       for (final r in allRatedRecords) {
         final rawRating = r.understandingRating!.toDouble();
-        double rating = rawRating;
-
+        double rating   = rawRating;
+ 
         if (r.status == AttendanceStatus.late &&
             r.lectureDurationMinutes != null &&
             r.lectureDurationMinutes! > 0) {
           final lateRatio = r.lateMinutes / r.lectureDurationMinutes!;
-
           if (lateRatio >= 0.5) {
-            // تأخر > 50% → لا يدخل في avgUnderstanding
             continue;
           } else if (lateRatio >= 0.25) {
-            // تأخر 25-50% → ينقص 1.0
             rating = (rawRating - 1.0).clamp(1.0, 5.0);
           } else if (lateRatio >= 0.10) {
-            // تأخر 10-25% → ينقص 0.5
             rating = (rawRating - 0.5).clamp(1.0, 5.0);
           }
-          // تأخر < 10% → لا تأثير
         }
-
+ 
         totalRating += rating;
         totalWeight += 1.0;
       }
-
-      final avgUnderstanding =
-          totalWeight == 0
-              ? (existing?.avgUnderstanding ?? 3.0)
-              : totalRating / totalWeight;
-
+ 
+      final avgUnderstanding = totalWeight == 0
+          ? (existing?.avgUnderstanding ?? 3.0)
+          : totalRating / totalWeight;
+ 
       final updated = SubjectPerformance(
         subjectId: subjectId,
         subjectName: records.first.subjectName,
         difficulty: existing?.difficulty ?? 3,
         totalLectures: totalLectures,
-        attendedCount: attendedCount,
-        lateCount: lateCount,
+        attendedCount: attendedCount.clamp(0, totalLectures),
+        lateCount: lateCount.clamp(0, totalLectures),
         avgUnderstanding: avgUnderstanding.clamp(0.0, 5.0),
         studyHoursLogged: existing?.studyHoursLogged ?? 0.0,
+        initialAttendedCount: baseline,
         lastUpdated: DateTime.now(),
       );
-
+ 
       await _scheduleRepo.savePerformance(updated);
     } catch (e) {
       debugPrint('[AttendanceController] _recalculatePerformance error: $e');

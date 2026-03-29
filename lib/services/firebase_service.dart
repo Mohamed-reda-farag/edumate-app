@@ -115,7 +115,10 @@ class FirebaseService {
   }
 
   /// جلب جميع المجالات
-  Future<Map<String, FieldModel>> getAllFields() async {
+  /// [forceRefresh] — إذا كان true يتجاهل الـ cache الصالح ويجلب كل المجالات
+  /// من Firestore مباشرة. يُستخدم عندما يكون عدد المجالات في الـ cache أقل
+  /// من الحد المتوقع (مثلاً عند إضافة مجال ثانوي بعد تخطيه في الاستبيان).
+  Future<Map<String, FieldModel>> getAllFields({bool forceRefresh = false}) async {
     _ensureInitialized();
 
     try {
@@ -126,14 +129,14 @@ class FirebaseService {
           .map((field) => field.id)
           .toList();
 
-      // كل المجالات صالحة — أرجعها من Cache مباشرةً
-      if (cachedFields.isNotEmpty && expiredIds.isEmpty) {
+      // كل المجالات صالحة وlا يوجد إجبار على الإعادة — أرجعها من Cache مباشرةً
+      if (cachedFields.isNotEmpty && expiredIds.isEmpty && !forceRefresh) {
         debugPrint('📦 Loaded ${cachedFields.length} fields from cache');
         return cachedFields;
       }
 
-      // ── جلب المنتهية فقط من Firestore (أو كلها إذا كان Cache فارغاً) ──────
-      final idsToFetch = expiredIds.isNotEmpty ? expiredIds : null;
+      // ── جلب المنتهية فقط من Firestore (أو كلها إذا كان Cache فارغاً أو forceRefresh) ──
+      final idsToFetch = (expiredIds.isNotEmpty && !forceRefresh) ? expiredIds : null;
       debugPrint('☁️ Fetching ${idsToFetch?.length ?? 'all'} fields from Firestore...');
 
       final Map<String, FieldModel> freshFields = {};

@@ -138,8 +138,10 @@ class GlobalLearningState extends ChangeNotifier {
   // تحميل البيانات الثابتة
   // ═════════════════════════════════════════════════════════════════════════
 
-  /// تحميل جميع المجالات من Firebase
-  Future<void> loadAllFields() async {
+  /// تحميل جميع المجالات من Firebase.
+  /// [forceRefresh] — يتجاهل الـ cache الصالح ويجلب الكل من Firestore.
+  /// يُستخدم عندما يكون عدد المجالات المحملة أقل من المتوقع.
+  Future<void> loadAllFields({bool forceRefresh = false}) async {
     if (_isLoadingStaticData) return;
 
     _isLoadingStaticData = true;
@@ -147,9 +149,9 @@ class GlobalLearningState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      debugPrint('📚 Loading all fields from Firebase...');
+      debugPrint('📚 Loading all fields from Firebase (forceRefresh=$forceRefresh)...');
 
-      final fields = await _firebaseService.getAllFields();
+      final fields = await _firebaseService.getAllFields(forceRefresh: forceRefresh);
       _allFields.clear();
       _allFields.addAll(fields);
 
@@ -1203,12 +1205,16 @@ class GlobalLearningState extends ChangeNotifier {
 
   /// مفتاح الأسبوع الحالي بصيغة 'yyyy-Www'
   String _currentWeekKey() {
-    final now = DateTime.now();
-    // حساب رقم الأسبوع ISO
-    final startOfYear = DateTime(now.year, 1, 1);
-    final weekNumber = ((now.difference(startOfYear).inDays + startOfYear.weekday) / 7).ceil();
-    return '${now.year}-W${weekNumber.toString().padLeft(2, '0')}';
-  }
+  final now = DateTime.now();
+ 
+  // نجد يوم الخميس في نفس الأسبوع (ISO: الأسبوع ينتمي للسنة التي يقع فيها خميسه)
+  // weekday في Dart: الاثنين=1 ... الأحد=7
+  final thursday = now.add(Duration(days: 4 - now.weekday));
+  final startOfYear = DateTime(thursday.year, 1, 1);
+  final weekNumber = ((thursday.difference(startOfYear).inDays) / 7).floor() + 1;
+ 
+  return '${thursday.year}-W${weekNumber.toString().padLeft(2, '0')}';
+}
 
   /// تاريخ اليوم بصيغة 'yyyy-MM-dd'
   String _todayKey() {

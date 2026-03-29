@@ -348,11 +348,19 @@ class TaskController extends ChangeNotifier {
         );
     if (task == null) return;
 
-    if (newStatus == StudySessionTaskStatus.started &&
-        task.status != TaskStatus.ongoing) {
-      _error = 'لا يمكن بدء الجلسة قبل حلول موعدها';
-      notifyListeners();
-      return;
+    if (newStatus == StudySessionTaskStatus.started) {
+      // 1. الحالة ongoing (Timer حدّثها بالفعل) — الحالة الطبيعية
+      // 2. الحالة upcoming لكن وقت الجلسة حلّ فعلاً (Timer لم ينقضِ بعد)
+      final isTimeReached = task.scheduledDate != null && task.timeSlot != null
+          ? TaskModel.computeCurrentStatus(task.scheduledDate!, task.timeSlot!) !=
+              TaskStatus.upcoming
+          : false;
+    
+      if (task.status != TaskStatus.ongoing && !isTimeReached) {
+        _error = 'لا يمكن بدء الجلسة قبل حلول موعدها';
+        notifyListeners();
+        return;
+      }
     }
 
     if (newStatus == StudySessionTaskStatus.completed &&

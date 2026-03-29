@@ -1,4 +1,5 @@
 # EDUMATE 📚
+[![Download APK](https://img.shields.io/badge/Download-APK%20Beta-blue)](https://github.com/Mohamed-reda-farag/edumate-app/releases/latest)
 
 > منصة تعليمية هندسية شاملة تساعد الطلاب على تعلم المهارات وإدارة حياتهم الأكاديمية
 

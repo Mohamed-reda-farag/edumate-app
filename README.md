@@ -22,7 +22,7 @@ A comprehensive engineering education platform that helps students learn technic
 
 ### 🤖 AI Skill Assessment
 
-- Conversational assessments powered by **Gemini 2.0 Flash**
+- Conversational assessments powered by **Gemini 2.5 Flash**
 - Minimum 8 questions, up to 15 adaptive questions per skill
 - Behavioral integrity tracking: app exits and paste attempts affect the final score
 - Weighted scoring: `finalScore = (0.8 × scorePercent + 0.2 × completionScore) - behaviorPenalty`

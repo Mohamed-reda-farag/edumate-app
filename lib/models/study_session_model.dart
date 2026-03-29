@@ -255,4 +255,34 @@ class StudySession {
   @override
   String toString() =>
       'StudySession(id: $id, subject: $subjectName, $dayOfWeek $timeSlot, ${status.name})';
+
+  bool get hasStarted {
+    final now = DateTime.now();
+
+    // نستخرج وقت البداية من الـ timeSlot (مثال: "8:00-10:00")
+    final parts = timeSlot.split('-');
+    if (parts.isNotEmpty) {
+      final startParts = parts[0].trim().split(':');
+      if (startParts.length >= 2) {
+        final startHour   = int.tryParse(startParts[0]) ?? 0;
+        final startMinute = int.tryParse(startParts[1]) ?? 0;
+        final sessionStart = DateTime(
+          scheduledDate.year,
+          scheduledDate.month,
+          scheduledDate.day,
+          startHour,
+          startMinute,
+        );
+        return !now.isBefore(sessionStart);
+      }
+    }
+
+    // fallback: إذا فشل parsing نتحقق من بداية اليوم فقط
+    final sessionDay = DateTime(
+      scheduledDate.year,
+      scheduledDate.month,
+      scheduledDate.day,
+    );
+    return !now.isBefore(sessionDay);
+  }
 }

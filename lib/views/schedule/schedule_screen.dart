@@ -7,29 +7,51 @@ import '../../controllers/schedule_controller.dart';
 import '../../controllers/semester_controller.dart';
 import '../../models/academic_semester_model.dart';
 import '../../models/schedule_time_settings.dart';
-import '../../repositories/schedule_repository.dart';
+import '../../models/subject_schedule_entry_model.dart';
 import '../schedule/semester_end_dialog.dart';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const List<String> _kDays = [
-  'السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'
+  'السبت',
+  'الأحد',
+  'الاثنين',
+  'الثلاثاء',
+  'الأربعاء',
+  'الخميس',
+  'الجمعة',
 ];
 
 // ── Subject Color Palette ─────────────────────────────────────────────────────
 
 const List<Color> _kSubjectBg = [
-  Color(0xFFBBDEFB), Color(0xFFC8E6C9), Color(0xFFFFCCBC),
-  Color(0xFFE1BEE7), Color(0xFFFFF9C4), Color(0xFFB2EBF2),
-  Color(0xFFFFCDD2), Color(0xFFD7CCC8), Color(0xFFC5CAE9),
-  Color(0xFFDCEDC8), Color(0xFFFFE0B2), Color(0xFFF8BBD0),
+  Color(0xFFBBDEFB),
+  Color(0xFFC8E6C9),
+  Color(0xFFFFCCBC),
+  Color(0xFFE1BEE7),
+  Color(0xFFFFF9C4),
+  Color(0xFFB2EBF2),
+  Color(0xFFFFCDD2),
+  Color(0xFFD7CCC8),
+  Color(0xFFC5CAE9),
+  Color(0xFFDCEDC8),
+  Color(0xFFFFE0B2),
+  Color(0xFFF8BBD0),
 ];
 
 const List<Color> _kSubjectFg = [
-  Color(0xFF1565C0), Color(0xFF2E7D32), Color(0xFFBF360C),
-  Color(0xFF6A1B9A), Color(0xFFF57F17), Color(0xFF00838F),
-  Color(0xFFC62828), Color(0xFF4E342E), Color(0xFF283593),
-  Color(0xFF33691E), Color(0xFFE65100), Color(0xFFAD1457),
+  Color(0xFF1565C0),
+  Color(0xFF2E7D32),
+  Color(0xFFBF360C),
+  Color(0xFF6A1B9A),
+  Color(0xFFF57F17),
+  Color(0xFF00838F),
+  Color(0xFFC62828),
+  Color(0xFF4E342E),
+  Color(0xFF283593),
+  Color(0xFF33691E),
+  Color(0xFFE65100),
+  Color(0xFFAD1457),
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -37,14 +59,10 @@ const List<Color> _kSubjectFg = [
 String _normalise(String name) => name.trim().toLowerCase();
 
 Map<String, int> _buildColorIndex(List<SubjectScheduleEntry> entries) {
-  final unique = entries
-      .map((e) => _normalise(e.subjectName))
-      .toSet()
-      .toList()
-    ..sort();
+  final unique =
+      entries.map((e) => _normalise(e.subjectName)).toSet().toList()..sort();
   return {
-    for (var i = 0; i < unique.length; i++)
-      unique[i]: i % _kSubjectBg.length
+    for (var i = 0; i < unique.length; i++) unique[i]: i % _kSubjectBg.length,
   };
 }
 
@@ -59,54 +77,48 @@ class ScheduleScreen extends StatefulWidget {
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
   bool _endDialogShown = false;
-  List<ScheduleTimeSlot> _timeSlots = List.from(kDefaultTimeSlots);
 
-  // ── [FIX BUG-1] _isBootstrapping ────────────────────────────────────────
-  //
-  // المشكلة الجذرية لـ "setup guard يظهر في كل مرة":
-  //
-  // عند كل فتح للتطبيق:
-  //   1. ScheduleScreen يُبنى → _ScheduleScreenState يُنشأ من جديد
-  //   2. SemesterController يبدأ بـ _initialized=false, _isLoading=false,
-  //      _activeSemester=null
-  //   3. build() يُستدعى فوراً قبل أي async:
-  //      needsSetup = (_activeSemester==null && !_isLoading) = true  ❌
-  //      → يظهر _SetupGuardView رغم وجود فصل في Firestore!
-  //   4. addPostFrameCallback يبدأ init() بعد فوات الأوان
-  //
-  // الحل:
-  //   - _isBootstrapping = true من البداية
-  //   - أثناء bootstrap: نعرض loading spinner (لا guard)
-  //   - بعد await init(): نُعيّن _isBootstrapping = false
-  //   - الآن فقط يُقيَّم needsSetup بشكل موثوق
-  //
+  // [FIX M1] لا نضع kDefaultTimeSlots كقيمة أولية هنا —
+  // بدلاً من ذلك نستخدم null للتمييز بين "لم تُحمَّل بعد" و"الافتراضية".
+  // هذا يمنع عرض الافتراضية في أي لحظة قبل اكتمال التحميل.
+  List<ScheduleTimeSlot>? _timeSlots;
+
   bool _isBootstrapping = true;
 
   @override
   void initState() {
     super.initState();
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    _loadTimeSlots(uid);
-
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
 
-      // ننتظر SemesterController أولاً (يُحمِّل الفصل من Firestore/cache)
+      // [FIX M1] نُحمِّل الـ timeSlots أولاً قبل أي شيء آخر —
+      // بهذا نضمن أن أول build بعد التهيئة يستخدم الأوقات الصحيحة
+      // لا الافتراضية، حتى لو أطلق init() → notifyListeners() مبكراً.
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (uid.isNotEmpty) {
+        final slots = await ScheduleTimeSettings.instance.load(uid);
+        if (!mounted) return;
+        setState(() => _timeSlots = slots);
+      } else {
+        setState(() => _timeSlots = List.from(kDefaultTimeSlots));
+      }
+
       await context.read<SemesterController>().init();
       if (!mounted) return;
-
-      // ننتظر ScheduleController (كان بدون await — أُصلح هنا)
-      await context.read<ScheduleController>().init();
+      final schedCtrl = context.read<ScheduleController>();
+      await schedCtrl.init();
       if (!mounted) return;
 
-      // [FIX BUG-1] الآن فقط نسمح بتقييم needsSetup
       setState(() => _isBootstrapping = false);
-
       _checkSemesterEnd();
     });
   }
 
-  Future<void> _loadTimeSlots(String uid) async {
+  // [FIX M1] دالة مستقلة لإعادة تحميل الـ slots —
+  // تُستدعى بعد العودة من edit screen أو time slots editor.
+  Future<void> _reloadTimeSlots() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
     final slots = await ScheduleTimeSettings.instance.load(uid);
     if (mounted) setState(() => _timeSlots = slots);
   }
@@ -124,7 +136,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // [FIX BUG-1] لا نتحقق أثناء bootstrap
     if (_isBootstrapping) return;
     _checkSemesterEnd();
   }
@@ -134,18 +145,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final ctrl    = context.watch<ScheduleController>();
     final semCtrl = context.watch<SemesterController>();
 
-    // [FIX BUG-1] أثناء bootstrap أو تحميل الفصل → spinner لا guard
-    if (_isBootstrapping || semCtrl.isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+    if (_isBootstrapping || semCtrl.isLoading || _timeSlots == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // بعد اكتمال التحميل: needsSetup موثوق الآن
     if (semCtrl.needsSetup) {
-      return _SetupGuardView(
-        onSetup: () => context.push('/subjects-setup'),
-      );
+      return _SetupGuardView(onSetup: () => context.push('/subjects-setup'));
     }
 
     return Scaffold(
@@ -159,11 +164,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 '${semCtrl.activeSemester!.type.labelAr} — '
                 '${semCtrl.activeSemester!.academicYear}',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withOpacity(0.6),
-                    ),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.6),
+                ),
               ),
           ],
         ),
@@ -183,8 +188,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             tooltip: 'الإنجازات',
             onPressed: () => context.push('/schedule/achievements'),
           ),
-          // [FIX BUG-2] تغيير الأيقونة والـ route ليعكس الشاشة الجديدة
-          // SubjectManagementScreen (تجمع المواد + الامتحانات)
           IconButton(
             icon: const Icon(Icons.manage_accounts_outlined),
             tooltip: 'إدارة المواد والامتحانات',
@@ -198,11 +201,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
+        // [FIX M1] بعد العودة من edit نُعيد تحميل الـ slots
         onPressed: () async {
           await context.push('/schedule/edit');
           if (!mounted) return;
-          final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-          await _loadTimeSlots(uid);
+          await _reloadTimeSlots();
         },
         icon: const Icon(Icons.edit),
         label: const Text('تعديل الجدول'),
@@ -216,12 +219,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       onCreateSchedule: () async {
                         await context.push('/schedule/edit');
                         if (!mounted) return;
-                        final uid =
-                            FirebaseAuth.instance.currentUser?.uid ?? '';
-                        await _loadTimeSlots(uid);
+                        await _reloadTimeSlots();
                       },
                     )
-                  : _ScheduleGrid(ctrl: ctrl, timeSlots: _timeSlots),
+                  : _ScheduleGrid(ctrl: ctrl, timeSlots: _timeSlots!),
     );
   }
 }
@@ -249,18 +250,17 @@ class _SetupGuardView extends StatelessWidget {
               const SizedBox(height: 24),
               Text(
                 'مرحباً! 👋',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
                 'ابدأ بإعداد فصلك الدراسي لتتمكن من استخدام نظام الجدول',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 32),
               FilledButton.icon(
@@ -268,8 +268,7 @@ class _SetupGuardView extends StatelessWidget {
                 icon: const Icon(Icons.add),
                 label: const Text('إعداد الفصل الدراسي'),
                 style: FilledButton.styleFrom(
-                  minimumSize: const Size(200, 52),
-                ),
+                    minimumSize: const Size(200, 52)),
               ),
             ],
           ),
@@ -330,9 +329,9 @@ class _ScheduleGrid extends StatelessWidget {
                       final entry = entryMap['${row}_$col'];
                       if (entry == null) return const _EmptyCell();
 
-                      final norm  = _normalise(entry.subjectName);
-                      final perf  = perfMap[norm];
-                      final idx   = colorIndex[norm] ?? 0;
+                      final norm = _normalise(entry.subjectName);
+                      final perf = perfMap[norm];
+                      final idx  = colorIndex[norm] ?? 0;
 
                       return _SubjectCell(
                         entry: entry,
@@ -345,10 +344,13 @@ class _ScheduleGrid extends StatelessWidget {
                               : perf?.subjectId ?? norm.replaceAll(' ', '_');
                           final subjectName =
                               perf?.subjectName ?? entry.subjectName.trim();
-                          context.push('/subject-details', extra: {
-                            'subjectId': subjectId,
-                            'subjectName': subjectName,
-                          });
+                          context.push(
+                            '/subject-details',
+                            extra: {
+                              'subjectId': subjectId,
+                              'subjectName': subjectName,
+                            },
+                          );
                         },
                       );
                     }),
@@ -371,12 +373,14 @@ class _HeaderCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.all(6),
-        child: Text(text,
-            textAlign: TextAlign.center,
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(fontWeight: FontWeight.bold)),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: Theme.of(context)
+              .textTheme
+              .labelSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
+        ),
       );
 }
 
@@ -386,9 +390,11 @@ class _TimeCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-        child: Text(slot,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.labelSmall),
+        child: Text(
+          slot,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.labelSmall,
+        ),
       );
 }
 
@@ -480,7 +486,8 @@ class _EmptyView extends StatelessWidget {
             const Icon(Icons.calendar_today_outlined,
                 size: 64, color: Colors.grey),
             const SizedBox(height: 16),
-            const Text('لا يوجد جدول بعد', style: TextStyle(fontSize: 18)),
+            const Text('لا يوجد جدول بعد',
+                style: TextStyle(fontSize: 18)),
             const SizedBox(height: 8),
             FilledButton.icon(
               onPressed: onCreateSchedule,
@@ -507,9 +514,7 @@ class _ErrorView extends StatelessWidget {
             Text(error, textAlign: TextAlign.center),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: onRetry,
-              child: const Text('إعادة المحاولة'),
-            ),
+                onPressed: onRetry, child: const Text('إعادة المحاولة')),
           ],
         ),
       );

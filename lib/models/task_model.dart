@@ -32,6 +32,12 @@ enum StudySessionTaskStatus {
   completed,  // أكملت
 }
 
+// نوع التكرار للمهام المخصصة الدورية
+enum RecurrenceType {
+  daily,   // يومي
+  weekly,  // أسبوعي (نفس اليوم كل أسبوع)
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // TaskModel — النموذج الرئيسي للمهمة
 // ══════════════════════════════════════════════════════════════════════════════
@@ -80,6 +86,8 @@ class TaskModel {
 
   // ── بيانات المهمة المخصصة (type == custom) ─────────────────────────────────
   final bool isRecurring;
+  final RecurrenceType? recurrenceType;
+  final int reminderMinutesBefore;
   final DateTime? dueDate;
   final bool hasReminder;
 
@@ -111,6 +119,8 @@ class TaskModel {
     this.totalLessons,
     this.progressPercentage,
     this.isRecurring = false,
+    this.recurrenceType,
+    this.reminderMinutesBefore = 60,
     this.dueDate,
     this.hasReminder = false,
     required this.createdAt,
@@ -258,6 +268,13 @@ class TaskModel {
       totalLessons: json['totalLessons'] as int?,
       progressPercentage: (json['progressPercentage'] as num?)?.toDouble(),
       isRecurring: json['isRecurring'] as bool? ?? false,
+      recurrenceType: json['recurrenceType'] != null
+          ? RecurrenceType.values.firstWhere(
+              (e) => e.name == json['recurrenceType'],
+              orElse: () => RecurrenceType.daily,
+            )
+          : null,
+      reminderMinutesBefore: json['reminderMinutesBefore'] as int? ?? 60,
       dueDate: json['dueDate'] != null
           ? (json['dueDate'] as Timestamp).toDate()
           : null,
@@ -281,6 +298,8 @@ class TaskModel {
       'title': title,
       'isRecurring': isRecurring,
       'hasReminder': hasReminder,
+      'reminderMinutesBefore': reminderMinutesBefore,
+      if (recurrenceType != null) 'recurrenceType': recurrenceType!.name,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -331,6 +350,8 @@ class TaskModel {
     Object? totalLessons = _sentinel,
     Object? progressPercentage = _sentinel,
     bool? isRecurring,
+    Object? recurrenceType = _sentinel,
+    int? reminderMinutesBefore,
     Object? dueDate = _sentinel,
     bool? hasReminder,
     DateTime? createdAt,
@@ -381,6 +402,11 @@ class TaskModel {
           ? this.progressPercentage
           : progressPercentage as double?,
       isRecurring: isRecurring ?? this.isRecurring,
+      recurrenceType: recurrenceType == _sentinel
+          ? this.recurrenceType
+          : recurrenceType as RecurrenceType?,
+      reminderMinutesBefore:
+          reminderMinutesBefore ?? this.reminderMinutesBefore,
       dueDate: dueDate == _sentinel ? this.dueDate : dueDate as DateTime?,
       hasReminder: hasReminder ?? this.hasReminder,
       createdAt: createdAt ?? this.createdAt,

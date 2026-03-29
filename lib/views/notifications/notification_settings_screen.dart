@@ -21,11 +21,24 @@ class _NotificationSettingsScreenState
   // Local copy للتعديل قبل الحفظ
   late NotificationSettings _local;
   bool _hasChanges = false;
+  bool _isFirstLoad = true;
 
   @override
   void initState() {
     super.initState();
     _local = context.read<NotificationController>().settings;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_hasChanges) {
+      final incoming = context.read<NotificationController>().settings;
+      if (incoming != _local || _isFirstLoad) {
+        _local = incoming;
+        _isFirstLoad = false;
+      }
+    }
   }
 
   void _update(NotificationSettings Function(NotificationSettings) updater) {
@@ -71,9 +84,6 @@ class _NotificationSettingsScreenState
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<NotificationController>();
-    if (!_hasChanges) {
-      _local = controller.settings;
-    }
 
     final isSaving = controller.isSaving;
 

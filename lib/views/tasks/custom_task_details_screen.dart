@@ -150,12 +150,27 @@ class TaskDetailsScreen extends StatelessWidget {
                           label: 'الوصف',
                           value: liveTask.description!,
                         ),
-                      if (liveTask.isRecurring)
-                        const _InfoTile(
+                      if (liveTask.isRecurring) ...[
+                        _InfoTile(
                           icon: Icons.repeat,
                           label: 'التكرار',
-                          value: 'مهمة متكررة',
+                          value: liveTask.recurrenceType == RecurrenceType.daily
+                              ? 'يومي'
+                              : 'أسبوعي',
                         ),
+                        _InfoTile(
+                          icon: Icons.alarm,
+                          label: 'التذكير',
+                          value: liveTask.reminderMinutesBefore == 0
+                              ? 'في موعد المهمة'
+                              : liveTask.reminderMinutesBefore < 60
+                                  ? 'قبل ${liveTask.reminderMinutesBefore} دقيقة'
+                                  : liveTask.reminderMinutesBefore == 60
+                                      ? 'قبل ساعة'
+                                      : 'قبل ${liveTask.reminderMinutesBefore ~/ 60} ساعة'
+                                          '${liveTask.reminderMinutesBefore % 60 > 0 ? ' و${liveTask.reminderMinutesBefore % 60} دقيقة' : ''}',
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -163,27 +178,32 @@ class TaskDetailsScreen extends StatelessWidget {
               const SizedBox(height: 24),
 
               // ── أزرار الإجراءات ────────────────────────────────────────────
-              if (!isCompleted)
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () => _toggleComplete(context, true, liveTask),
-                    icon: const Icon(Icons.check_circle_outline),
-                    label: const Text('إكمال المهمة'),
-                    style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green),
+              // المهمة الدورية لا تُكتمَل — فقط تُحذف
+              if (!liveTask.isRecurring) ...[
+                if (!isCompleted)
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () =>
+                          _toggleComplete(context, true, liveTask),
+                      icon: const Icon(Icons.check_circle_outline),
+                      label: const Text('إكمال المهمة'),
+                      style: FilledButton.styleFrom(
+                          backgroundColor: Colors.green),
+                    ),
+                  )
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          _toggleComplete(context, false, liveTask),
+                      icon: const Icon(Icons.undo),
+                      label: const Text('إلغاء الإكمال'),
+                    ),
                   ),
-                )
-              else
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _toggleComplete(context, false, liveTask),
-                    icon: const Icon(Icons.undo),
-                    label: const Text('إلغاء الإكمال'),
-                  ),
-                ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
+              ],
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
@@ -228,11 +248,22 @@ class TaskDetailsScreen extends StatelessWidget {
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            // [FIX] إضافة try/catch — كان الفشل الصامت يُبقي المستخدم
+            // في الشاشة بدون أي رسالة خطأ، متسق الآن مع tasks_screen.
             onPressed: () async {
-              await context.read<TaskController>().deleteCustomTask(current.id);
-              if (context.mounted) {
-                Navigator.pop(ctx);
-                Navigator.pop(context);
+              Navigator.pop(ctx);
+              try {
+                await context.read<TaskController>().deleteCustomTask(current.id);
+                if (context.mounted) Navigator.pop(context);
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('فشل حذف المهمة: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               }
             },
             child: const Text('حذف'),

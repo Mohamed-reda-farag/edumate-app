@@ -75,6 +75,7 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
   }
 
   void _showQuickProgressDialog() {
+    if (!mounted) return;
     final cp = _getProgress(context.read<GlobalLearningState>());
     if (cp == null || cp.isCompleted) return;
 
@@ -171,12 +172,9 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
                         const SizedBox(height: 16),
                         Builder(
                           builder: (_) {
-                            final tempList = _LessonsList(
-                              cp: cp,
-                              courseDuration: duration,
-                              onMarkLesson: (_) async {},
-                            );
-                            final canMark = tempList._canMark(
+                            final canMark = _canMarkLesson(
+                              cp,
+                              duration,
                               cp.currentLessonIndex,
                             );
                             if (cp.currentLessonIndex >= cp.totalLessons ||
@@ -238,14 +236,22 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(children: [
-              Icon(Icons.block, color: Colors.white, size: 18),
-              SizedBox(width: 8),
-              Expanded(child: Text('أكملت حصتك اليومية — عُد غداً لمواصلة التعلم 💪')),
-            ]),
+            content: const Row(
+              children: [
+                Icon(Icons.block, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'أكملت حصتك اليومية — عُد غداً لمواصلة التعلم 💪',
+                  ),
+                ),
+              ],
+            ),
             backgroundColor: Colors.red.shade600,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             margin: const EdgeInsets.all(12),
           ),
         );
@@ -257,14 +263,22 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(children: [
-              Icon(Icons.calendar_month, color: Colors.white, size: 18),
-              SizedBox(width: 8),
-              Expanded(child: Text('أكملت أيام تعلمك هذا الأسبوع — ابدأ من جديد الأسبوع القادم 🗓️')),
-            ]),
+            content: const Row(
+              children: [
+                Icon(Icons.calendar_month, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'أكملت أيام تعلمك هذا الأسبوع — ابدأ من جديد الأسبوع القادم 🗓️',
+                  ),
+                ),
+              ],
+            ),
             backgroundColor: Colors.red.shade600,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             margin: const EdgeInsets.all(12),
           ),
         );
@@ -279,14 +293,26 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
-              SizedBox(width: 8),
-              Expanded(child: Text('وصلت للحد اليومي — إذا تجاوزته سيُمنع التعليم لبقية اليوم ⚠️')),
-            ]),
+            content: const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'وصلت للحد اليومي — إذا تجاوزته سيُمنع التعليم لبقية اليوم ⚠️',
+                  ),
+                ),
+              ],
+            ),
             backgroundColor: Colors.orange,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             margin: const EdgeInsets.all(12),
             duration: const Duration(seconds: 4),
           ),
@@ -300,14 +326,26 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
-              SizedBox(width: 8),
-              Expanded(child: Text('وصلت للحد الأسبوعي — إذا تجاوزته سيُمنع التعليم حتى الأسبوع القادم ⚠️')),
-            ]),
+            content: const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'وصلت للحد الأسبوعي — إذا تجاوزته سيُمنع التعليم حتى الأسبوع القادم ⚠️',
+                  ),
+                ),
+              ],
+            ),
             backgroundColor: Colors.orange,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             margin: const EdgeInsets.all(12),
             duration: const Duration(seconds: 4),
           ),
@@ -464,7 +502,11 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
                   onPressed: () {
                     Navigator.pop(context);
                     // فتح dialog الموافقة قبل الاختبار
-                    _showAssessmentConsentDialog(state, skillData, skillProgress);
+                    _showAssessmentConsentDialog(
+                      state,
+                      skillData,
+                      skillProgress,
+                    );
                   },
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('ابدأ الاختبار'),
@@ -472,9 +514,12 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
                     backgroundColor: const Color(0xFF6C63FF),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                   ),
                 ),
               ],
@@ -494,160 +539,174 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: StatefulBuilder(
-          builder: (ctx, setStateLocal) => AlertDialog(
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20)),
-            title: const Text(
-              '📋 قبل بدء الاختبار',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // ── معلومات الاختبار ──────────────────────────────────
-                  _ConsentInfoRow(
-                    icon: Icons.quiz_outlined,
-                    color: const Color(0xFF6C63FF),
-                    text: 'حتى 15 سؤالاً بأسلوب محادثة تفاعلية',
-                  ),
-                  _ConsentInfoRow(
-                    icon: Icons.emoji_events_outlined,
-                    color: Colors.amber,
-                    text: 'درجة النجاح: 80% فأكثر',
-                  ),
-                  _ConsentInfoRow(
-                    icon: Icons.repeat_outlined,
-                    color: Colors.blue,
-                    text:
-                        'المحاولات المتبقية: '
-                        '${3 - (skillProgress?.assessmentAttempts ?? 0)} من 3',
-                  ),
-                  const Divider(height: 24),
-
-                  // ── تأثير الدرجات ─────────────────────────────────────
-                  Text(
-                    'تأثير درجتك على تقدمك:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: Colors.grey[700],
+      builder:
+          (_) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: StatefulBuilder(
+              builder:
+                  (ctx, setStateLocal) => AlertDialog(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  _ConsentGradeRow(
-                    range: '≥ 80%',
-                    result: 'المهارة مكتملة ✅',
-                    color: Colors.green,
-                  ),
-                  _ConsentGradeRow(
-                    range: '50% - 79%',
-                    result: 'تقدم الكورس يُعاد جزئياً',
-                    color: Colors.orange,
-                  ),
-                  _ConsentGradeRow(
-                    range: '20% - 49%',
-                    result: 'تقدم الكورس يُعاد لنفس النسبة',
-                    color: Colors.deepOrange,
-                  ),
-                  _ConsentGradeRow(
-                    range: '< 20%',
-                    result: 'الكورس يُلغى كاملاً ⚠️',
-                    color: Colors.red,
-                  ),
-                  const Divider(height: 24),
-
-                  // ── تحذيرات ───────────────────────────────────────────
-                  Text(
-                    'تحذيرات مهمة:',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: Colors.grey[700],
+                    title: const Text(
+                      '📋 قبل بدء الاختبار',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  _ConsentInfoRow(
-                    icon: Icons.content_paste_off_outlined,
-                    color: Colors.red,
-                    text: 'النسخ/اللصق يُخفّض درجتك',
-                  ),
-                  _ConsentInfoRow(
-                    icon: Icons.exit_to_app_outlined,
-                    color: Colors.red,
-                    text:
-                        'الخروج من التطبيق أثناء الاختبار يُخفّض درجتك',
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ── checkbox الموافقة ─────────────────────────────────
-                  GestureDetector(
-                    onTap: () =>
-                        setStateLocal(() => agreed = !agreed),
-                    child: Row(
-                      children: [
-                        Checkbox(
-                          value: agreed,
-                          onChanged: (v) => setStateLocal(
-                              () => agreed = v ?? false),
-                          activeColor: const Color(0xFF6C63FF),
-                        ),
-                        const Expanded(
-                          child: Text(
-                            'قرأت وفهمت جميع الشروط وأوافق على المتابعة',
-                            style: TextStyle(fontSize: 13),
+                    content: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // ── معلومات الاختبار ──────────────────────────────────
+                          _ConsentInfoRow(
+                            icon: Icons.quiz_outlined,
+                            color: const Color(0xFF6C63FF),
+                            text: 'حتى 15 سؤالاً بأسلوب محادثة تفاعلية',
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text('إلغاء',
-                    style: TextStyle(color: Colors.grey[600])),
-              ),
-              ElevatedButton.icon(
-                onPressed: agreed
-                    ? () {
-                        Navigator.pop(ctx);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => SkillAssessmentScreen(
-                              fieldId: widget.fieldId,
-                              skillId: widget.skillId,
-                              skill: skillData,
+                          _ConsentInfoRow(
+                            icon: Icons.emoji_events_outlined,
+                            color: Colors.amber,
+                            text: 'درجة النجاح: 80% فأكثر',
+                          ),
+                          _ConsentInfoRow(
+                            icon: Icons.repeat_outlined,
+                            color: Colors.blue,
+                            text:
+                                'المحاولات المتبقية: '
+                                '${3 - (skillProgress?.assessmentAttempts ?? 0)} من 3',
+                          ),
+                          const Divider(height: 24),
+
+                          // ── تأثير الدرجات ─────────────────────────────────────
+                          Text(
+                            'تأثير درجتك على تقدمك:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Colors.grey[700],
                             ),
                           ),
-                        ).then((_) {
-                          // بعد العودة من الاختبار — فحص خيار تعليم الكورس
-                          if (mounted) _checkCourseCompletionChoice(state);
-                        });
-                      }
-                    : null,
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('ابدأ الاختبار'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6C63FF),
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey[300],
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-            ],
+                          const SizedBox(height: 8),
+                          _ConsentGradeRow(
+                            range: '≥ 80%',
+                            result: 'المهارة مكتملة ✅',
+                            color: Colors.green,
+                          ),
+                          _ConsentGradeRow(
+                            range: '50% - 79%',
+                            result: 'تقدم الكورس يُعاد جزئياً',
+                            color: Colors.orange,
+                          ),
+                          _ConsentGradeRow(
+                            range: '20% - 49%',
+                            result: 'تقدم الكورس يُعاد لنفس النسبة',
+                            color: Colors.deepOrange,
+                          ),
+                          _ConsentGradeRow(
+                            range: '< 20%',
+                            result: 'الكورس يُلغى كاملاً ⚠️',
+                            color: Colors.red,
+                          ),
+                          const Divider(height: 24),
+
+                          // ── تحذيرات ───────────────────────────────────────────
+                          Text(
+                            'تحذيرات مهمة:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _ConsentInfoRow(
+                            icon: Icons.content_paste_off_outlined,
+                            color: Colors.red,
+                            text: 'النسخ/اللصق يُخفّض درجتك',
+                          ),
+                          _ConsentInfoRow(
+                            icon: Icons.exit_to_app_outlined,
+                            color: Colors.red,
+                            text:
+                                'الخروج من التطبيق أثناء الاختبار يُخفّض درجتك',
+                          ),
+                          const SizedBox(height: 16),
+
+                          // ── checkbox الموافقة ─────────────────────────────────
+                          GestureDetector(
+                            onTap: () => setStateLocal(() => agreed = !agreed),
+                            child: Row(
+                              children: [
+                                Checkbox(
+                                  value: agreed,
+                                  onChanged:
+                                      (v) => setStateLocal(
+                                        () => agreed = v ?? false,
+                                      ),
+                                  activeColor: const Color(0xFF6C63FF),
+                                ),
+                                const Expanded(
+                                  child: Text(
+                                    'قرأت وفهمت جميع الشروط وأوافق على المتابعة',
+                                    style: TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: Text(
+                          'إلغاء',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed:
+                            agreed
+                                ? () {
+                                  Navigator.pop(ctx);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder:
+                                          (_) => SkillAssessmentScreen(
+                                            fieldId: widget.fieldId,
+                                            skillId: widget.skillId,
+                                            skill: skillData,
+                                          ),
+                                    ),
+                                  ).then((_) {
+                                    // بعد العودة من الاختبار — فحص خيار تعليم الكورس
+                                    if (mounted) {
+                                      _checkCourseCompletionChoice(state);
+                                    }
+                                  });
+                                }
+                                : null,
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('ابدأ الاختبار'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6C63FF),
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey[300],
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -663,86 +722,96 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20)),
-          title: const Text(
-            '🎉 اجتزت الاختبار!',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.workspace_premium,
-                  size: 56, color: Colors.amber),
-              const SizedBox(height: 16),
-              const Text(
-                'أثبتت إتقانك للمهارة.\n\n'
-                'هل تريد تعليم هذا الكورس كمكتمل؟',
+      builder:
+          (_) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Text(
+                '🎉 اجتزت الاختبار!',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, height: 1.5),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
-            ],
-          ),
-          actions: [
-            // لا — يستمر في التعلم
-            OutlinedButton.icon(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.school_outlined),
-              label: const Text('سأكمل التعلم'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF6C63FF),
-                side: const BorderSide(color: Color(0xFF6C63FF)),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.workspace_premium,
+                    size: 56,
+                    color: Colors.amber,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'أثبتت إتقانك للمهارة.\n\n'
+                    'هل تريد تعليم هذا الكورس كمكتمل؟',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, height: 1.5),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 8),
-            // نعم — يعلّم الكورس مكتملاً
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await state.markCourseAsCompleted(
-                    fieldId: widget.fieldId,
-                    skillId: widget.skillId,
-                    courseId: widget.courseId,
-                  );
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Row(children: [
-                          Icon(Icons.check_circle, color: Colors.white),
-                          SizedBox(width: 8),
-                          Text('تم تعليم الكورس كمكتمل ✅'),
-                        ]),
-                        backgroundColor: Colors.green,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        margin: const EdgeInsets.all(12),
-                      ),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text('نعم، أتقنت محتواه'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6C63FF),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+              actions: [
+                // لا — يستمر في التعلم
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.school_outlined),
+                  label: const Text('سأكمل التعلم'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF6C63FF),
+                    side: const BorderSide(color: Color(0xFF6C63FF)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 8),
+                // نعم — يعلّم الكورس مكتملاً
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      await state.markCourseAsCompleted(
+                        fieldId: widget.fieldId,
+                        skillId: widget.skillId,
+                        courseId: widget.courseId,
+                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Row(
+                              children: [
+                                Icon(Icons.check_circle, color: Colors.white),
+                                SizedBox(width: 8),
+                                Text('تم تعليم الكورس كمكتمل ✅'),
+                              ],
+                            ),
+                            backgroundColor: Colors.green,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            margin: const EdgeInsets.all(12),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text('نعم، أتقنت محتواه'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6C63FF),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -1203,7 +1272,10 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen>
                       const SizedBox(height: 8),
                       Text(
                         'سيتم فتح الكورس وتسجيل بدايتك في مساركم التعليمي.',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
@@ -2328,9 +2400,10 @@ class _RatingCardState extends State<_RatingCard> {
                               i < _selected
                                   ? Icons.star_rounded
                                   : Icons.star_outline_rounded,
-                              color: i < _selected
-                                  ? Colors.amber
-                                  : Colors.amber.withOpacity(0.3),
+                              color:
+                                  i < _selected
+                                      ? Colors.amber
+                                      : Colors.amber.withOpacity(0.3),
                               size: 32,
                             ),
                           ),
@@ -2680,6 +2753,28 @@ class _CompletedCourseActions extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// دالة مستقلة لفحص إمكانية تعليم الدرس — مشتركة بين Bottom Sheet و _LessonsList
+// ─────────────────────────────────────────────────────────────────────────────
+bool _canMarkLesson(CourseProgress cp, String courseDuration, int index) {
+  // درس مكتمل مسبقاً — لا يُعاد تعليمه
+  if (cp.completedLessons.contains(index)) return false;
+ 
+  final hours = DurationParser.parseToHours(courseDuration);
+  final minutesPerLesson = ((hours * 60) / cp.totalLessons).clamp(20.0, 180.0);
+ 
+  // أول درس — مسموح دائماً بمجرد بدء الكورس
+  if (cp.completedLessons.isEmpty) return index == 0;
+ 
+  // يجب أن يكون الدرس هو الدرس التالي المتوقع بالترتيب
+  final nextExpected = cp.completedLessons.reduce((a, b) => a > b ? a : b) + 1;
+  if (index != nextExpected) return false;
+
+  final reference = cp.lastLessonUnlockedAt ?? cp.lastAccessedAt;
+  final minutesElapsed = DateTime.now().difference(reference).inMinutes;
+  return minutesElapsed >= minutesPerLesson;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // قائمة الدروس — مشتركة بين Bottom Sheet و ExpansionTile
 // ─────────────────────────────────────────────────────────────────────────────
 class _LessonsList extends StatelessWidget {
@@ -2695,28 +2790,14 @@ class _LessonsList extends StatelessWidget {
 
   double _parsedHours() => DurationParser.parseToHours(courseDuration);
 
-  bool _canMark(int index) {
-    if (cp.completedLessons.contains(index)) return false;
-
-    final hours = _parsedHours();
-    final minutesPerLesson =
-        ((hours * 60) / cp.totalLessons).clamp(20.0, 180.0);
-
-    if (cp.completedLessons.isEmpty) return index == 0;
-
-    final nextExpected =
-        cp.completedLessons.reduce((a, b) => a > b ? a : b) + 1;
-    if (index != nextExpected) return false;
-
-    final minutesElapsed =
-        DateTime.now().difference(cp.lastAccessedAt).inMinutes;
-    return minutesElapsed >= minutesPerLesson;
-  }
+  bool _canMark(int index) => _canMarkLesson(cp, courseDuration, index);
 
   String _lockReason(int index) {
     final hours = _parsedHours();
-    final minutesPerLesson =
-        ((hours * 60) / cp.totalLessons).clamp(20.0, 180.0);
+    final minutesPerLesson = ((hours * 60) / cp.totalLessons).clamp(
+      20.0,
+      180.0,
+    );
     final minutesElapsed =
         DateTime.now().difference(cp.lastAccessedAt).inMinutes;
     final remaining = (minutesPerLesson - minutesElapsed).ceil();
@@ -2738,11 +2819,11 @@ class _LessonsList extends StatelessWidget {
         final isCurrent = index == cp.currentLessonIndex;
         final canMark = _canMark(index);
 
-        final isNextLocked = !isCompleted &&
+        final isNextLocked =
+            !isCompleted &&
             !canMark &&
             cp.completedLessons.isNotEmpty &&
-            index ==
-                cp.completedLessons.reduce((a, b) => a > b ? a : b) + 1;
+            index == cp.completedLessons.reduce((a, b) => a > b ? a : b) + 1;
 
         final lockMsg = isNextLocked ? _lockReason(index) : '';
 
@@ -2756,9 +2837,10 @@ class _LessonsList extends StatelessWidget {
               Text(
                 'الدرس ${index + 1}',
                 style: TextStyle(
-                  color: isCompleted
-                      ? Colors.green
-                      : canMark
+                  color:
+                      isCompleted
+                          ? Colors.green
+                          : canMark
                           ? Theme.of(context).colorScheme.onSurface
                           : Colors.grey[500],
                 ),
@@ -2766,9 +2848,10 @@ class _LessonsList extends StatelessWidget {
               if (isCurrent && !isCompleted && canMark) ...[
                 const SizedBox(width: 8),
                 Chip(
-                  label: const Text('التالي',
-                      style:
-                          TextStyle(fontSize: 10, color: Colors.white)),
+                  label: const Text(
+                    'التالي',
+                    style: TextStyle(fontSize: 10, color: Colors.white),
+                  ),
                   backgroundColor: const Color(0xFF6C63FF),
                   padding: EdgeInsets.zero,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -2778,36 +2861,54 @@ class _LessonsList extends StatelessWidget {
                 const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 7, vertical: 2),
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.orange.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(10),
-                    border:
-                        Border.all(color: Colors.orange.withOpacity(0.4)),
+                    border: Border.all(color: Colors.orange.withOpacity(0.4)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.schedule,
-                          size: 11, color: Colors.orange),
+                      const Icon(
+                        Icons.schedule,
+                        size: 11,
+                        color: Colors.orange,
+                      ),
                       const SizedBox(width: 3),
-                      Text(lockMsg,
-                          style: const TextStyle(
-                              fontSize: 10, color: Colors.orange)),
+                      Text(
+                        lockMsg,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.orange,
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ],
             ],
           ),
-          secondary: isCompleted
-              ? const Icon(Icons.check_circle,
-                  color: Colors.green, size: 20)
-              : canMark
-                  ? Icon(Icons.radio_button_unchecked,
-                      color: Colors.grey[400], size: 20)
-                  : const Icon(Icons.lock_outline,
-                      color: Colors.orange, size: 20),
+          secondary:
+              isCompleted
+                  ? const Icon(
+                    Icons.check_circle,
+                    color: Colors.green,
+                    size: 20,
+                  )
+                  : canMark
+                  ? Icon(
+                    Icons.radio_button_unchecked,
+                    color: Colors.grey[400],
+                    size: 20,
+                  )
+                  : const Icon(
+                    Icons.lock_outline,
+                    color: Colors.orange,
+                    size: 20,
+                  ),
           onChanged: (value) async {
             if (value == true && canMark) {
               await onMarkLesson(index);
@@ -2843,9 +2944,7 @@ class _ConsentInfoRow extends StatelessWidget {
         children: [
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(text, style: const TextStyle(fontSize: 13)),
-          ),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
         ],
       ),
     );
@@ -2870,8 +2969,7 @@ class _ConsentGradeRow extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               color: color.withOpacity(0.1),
               borderRadius: BorderRadius.circular(6),
@@ -2919,7 +3017,10 @@ class _LoadingPage extends StatelessWidget {
               const SizedBox(height: 16),
               Text(
                 'جارٍ تحميل الكورس...',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 14,
+                ),
               ),
             ],
           ),

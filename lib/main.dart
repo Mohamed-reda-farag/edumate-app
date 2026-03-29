@@ -160,6 +160,17 @@ void main() async {
       getUserId: () => authController.currentUserId ?? '',
     );
 
+    // ربط callback إشعار "غياب عن الكورس" بعد إنشاء notificationController
+    globalLearningState.onCourseAccessedCallback = ({
+      required String courseId,
+      required String courseTitle,
+      required String skillName,
+    }) => notificationController.onCourseAccessed(
+      courseId: courseId,
+      courseTitle: courseTitle,
+      skillName: skillName,
+    );
+
     // 10. SemesterController
     final semesterController = SemesterController(
       semesterRepo: semesterRepo,
@@ -201,8 +212,14 @@ void main() async {
       notificationController: notificationController,
     );
 
+    globalLearningState.onCourseProgressChangedCallback = () => 
+        taskController.syncAllCourseTasks();
+
     scheduleController.onScheduleChanged = () =>
-        taskSyncService.syncDailyTasks(forceRefresh: true);
+        taskController.forceDailySync();
+
+    scheduleController.onStudyPlanMissing = () =>
+        notificationController.onStudyPlanMissing();
 
     // ══════════════════════════════════════════════════════════════════════════
     // 13. Login / Logout callbacks
@@ -214,67 +231,54 @@ void main() async {
 
     VoidCallback? notifyLoginComplete;
 
-    authController.onLogin = () async {
-      // ترتيب التهيئة مهم: الفصل → الجدول → الحضور → النقاط
+    // ── دوال مساعدة لتقسيم منطق onLogin ─────────────────────────────────────
+
+    Future<void> initControllers() async {
       await semesterController.init();
       await scheduleController.init();
       await attendanceController.init();
       await gamificationController.init();
+    }
 
-      final uid = authController.currentUserId ?? '';
-      if (uid.isNotEmpty) {
-        await globalLearningState.loadUserProfile(uid);
-        try {
-          final profileDoc = await FirebaseFirestore.instance
-              .collection('user_profiles')
-              .doc(uid)
-              .get();
-          if (profileDoc.exists) {
-            await prefs.setBool('survey_completed', true);
-            debugPrint('✅ survey_completed synced from Firestore');
-          }
-        } catch (e) {
-          debugPrint('⚠️ Could not sync survey status: $e');
-        } finally {
-          notifyLoginComplete?.call();
+    Future<void> syncUserProfile(String uid) async {
+      await globalLearningState.loadUserProfile(uid);
+
+      try {
+        if (globalLearningState.hasUserProfile) {
+          await prefs.setBool('survey_completed', true);
+          debugPrint('✅ survey_completed synced from loaded profile');
         }
+      } catch (e) {
+        debugPrint('⚠️ Could not sync survey status: $e');
       }
+    }
 
+    Future<void> initTaskController() async {
       await taskController.init();
+    }
 
+    Future<void> initNotifications(String uid) async {
+      await FcmService.instance.initialize(userId: uid);
+      await notificationController.initialize();
       await prefs.setString('bg_sync_user_id', uid);
       await TaskSyncService.registerDailySync();
 
-      // ── نظام الإشعارات ────────────────────────────────────────────────────
-      await FcmService.instance.initialize(userId: uid);
-      await notificationController.initialize();
+      final activeCourses = globalLearningState.hasUserProfile
+          ? globalLearningState.getActiveCourses()
+          : <CourseProgress>[];
 
-      if (globalLearningState.hasUserProfile) {
-        final activeCourses = globalLearningState.getActiveCourses();
-        await NotificationBackgroundBridge.saveUserData(
-          userId: uid,
-          settings: notificationController.settings,
-          activeCourseIds: activeCourses.map((c) => c.courseId).toList(),
-          courseLastAccess: {
-            for (final c in activeCourses) c.courseId: c.lastAccessedAt,
-          },
-          currentStreak: gamificationController.data?.currentStreak ?? 0,
-          preferredTimes:
-              notificationController.settings.toPreferredTimesMap(),
-        );
-      } else {
-        // profile لم يتحمل بعد — نحفظ البيانات الأساسية فقط بدون courses.
-        // سيُحدَّث bridge بالبيانات الكاملة عند أول updateStreak() أو
-        // updateSettings() بعد وصول أول snapshot من Firestore.
-        await NotificationBackgroundBridge.saveUserData(
-          userId: uid,
-          settings: notificationController.settings,
-          activeCourseIds: const [],
-          courseLastAccess: const {},
-          currentStreak: gamificationController.data?.currentStreak ?? 0,
-          preferredTimes:
-              notificationController.settings.toPreferredTimesMap(),
-        );
+      await NotificationBackgroundBridge.saveUserData(
+        userId: uid,
+        settings: notificationController.settings,
+        activeCourseIds: activeCourses.map((c) => c.courseId).toList(),
+        courseLastAccess: {
+          for (final c in activeCourses) c.courseId: c.lastAccessedAt,
+        },
+        currentStreak: gamificationController.data?.currentStreak ?? 0,
+        preferredTimes: notificationController.settings.toPreferredTimesMap(),
+      );
+
+      if (!globalLearningState.hasUserProfile) {
         debugPrint(
           '[main] onLogin: profile not loaded yet — '
           'bridge saved without course data',
@@ -282,37 +286,28 @@ void main() async {
       }
 
       await NotificationSchedulerService.registerDailySync();
+    }
 
-      // [NOTIF] تحديث streak الأولي
+    void setupListeners() {
+      // تحديث streak الأولي
       lastKnownLevel = gamificationController.data?.level ?? 0;
       notificationController.updateStreak(
         gamificationController.data?.currentStreak ?? 0,
       );
 
-      // ── إشعارات الإنجازات ─────────────────────────────────────────────────
-      void Function() makeAchievementListener(
-        GamificationController ctrl,
-        NotificationController notifCtrl,
-      ) {
-        return () {
-          for (final achievement in ctrl.newlyUnlocked) {
-            notifCtrl.onAchievementUnlocked(achievement);
-          }
-          if (ctrl.newlyUnlocked.isNotEmpty) {
-            ctrl.clearNewlyUnlocked();
-          }
-        };
-      }
-
-      achievementListener = makeAchievementListener(
-        gamificationController,
-        notificationController,
-      );
-      // نزيل أي listener قديم قبل الإضافة لتجنب التكرار
+      // listener للإنجازات
+      achievementListener = () {
+        for (final achievement in gamificationController.newlyUnlocked) {
+          notificationController.onAchievementUnlocked(achievement);
+        }
+        if (gamificationController.newlyUnlocked.isNotEmpty) {
+          gamificationController.clearNewlyUnlocked();
+        }
+      };
       gamificationController.removeListener(achievementListener!);
       gamificationController.addListener(achievementListener!);
 
-      // [NOTIF] listener لرصد تغيير المستوى (Level Up)
+      // listener للمستوى والـ streak
       levelUpListener = () {
         final newLevel = gamificationController.data?.level ?? 0;
         if (newLevel > lastKnownLevel && lastKnownLevel > 0) {
@@ -320,7 +315,6 @@ void main() async {
         }
         if (newLevel > 0) lastKnownLevel = newLevel;
 
-        // [NOTIF] تحديث streak في كل تغيير
         final streak = gamificationController.data?.currentStreak ?? 0;
         notificationController.updateStreak(streak);
       };
@@ -329,6 +323,35 @@ void main() async {
 
       NotificationService.instance.onNotificationTapped =
           AppNavigation.handleNotificationTap;
+    }
+
+    // ── onLogin callback ──────────────────────────────────────────────────────
+    authController.onLogin = () async {
+      try {
+        // 1. تهيئة controllers الأساسية (بدون TaskController)
+        await initControllers();
+
+        final uid = authController.currentUserId ?? '';
+        if (uid.isNotEmpty) {
+          // 2. تحميل بروفايل المستخدم أولاً — يملأ allFields في GlobalLearningState
+          await syncUserProfile(uid);
+
+          // 3. الآن نُهيئ TaskController — syncCourseTasks ستجد allFields جاهزة
+          await initTaskController();
+
+          // 4. الإشعارات
+          await initNotifications(uid);
+        } else {
+          // uid فارغ — نُهيئ TaskController على أي حال بدون course sync
+          await initTaskController();
+        }
+
+        setupListeners();
+        notifyLoginComplete?.call();
+      } catch (e) {
+        debugPrint('❌ onLogin error: $e');
+        notifyLoginComplete?.call();
+      }
     };
 
     authController.onLogout = () async {
@@ -350,7 +373,8 @@ void main() async {
       await attendanceController.reset();
       await gamificationController.reset();
       await semesterController.reset();
-      await globalLearningState.reset();
+      // [FIX] الدالة الصحيحة هي signOut() وليس reset() — كانت compile error
+      await globalLearningState.signOut();
 
       await TaskSyncService.cancelDailySync();
       await prefs.remove('bg_sync_user_id');

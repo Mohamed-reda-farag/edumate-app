@@ -48,16 +48,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final avgAttendance = performances.isEmpty
         ? 0.0
-        : performances
-                .map((p) => p.attendanceRate)
-                .reduce((a, b) => a + b) /
+        : performances.fold(0.0, (sum, p) => sum + p.attendanceRate) /
             performances.length;
 
     final avgUnderstanding = performances.isEmpty
         ? 0.0
-        : performances
-                .map((p) => p.avgUnderstanding)
-                .reduce((a, b) => a + b) /
+        : performances.fold(0.0, (sum, p) => sum + p.avgUnderstanding) /
             performances.length;
 
     final weekSessions      = schedCtrl.weekSessions;

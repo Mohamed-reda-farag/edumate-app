@@ -22,7 +22,6 @@ class _SmartPlanScreenState extends State<SmartPlanScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // init() آمن — يتجاهل النداء الثاني بفضل _initialized flag
       context.read<ScheduleController>().init();
     });
   }
@@ -35,11 +34,28 @@ class _SmartPlanScreenState extends State<SmartPlanScreen>
 
   Future<void> _generatePlan() async {
     final schedCtrl    = context.read<ScheduleController>();
+    final attCtrl      = context.read<AttendanceController>();
     final learningState = context.read<GlobalLearningState>();
+
+    // [FIX M3] قبل التوليد: نتحقق هل توجد جلسات اليوم مكتملة أو فائتة.
+    // إذا كانت هناك جلسات منتهية اليوم نُخبر المستخدم أنها ستُحتفظ بها.
+    final todaySessions = attCtrl.todaySessions;
+    final todayFinished = todaySessions
+        .where((s) =>
+            s.status == SessionStatus.completed ||
+            s.status == SessionStatus.skipped)
+        .toList();
+
+    if (todayFinished.isNotEmpty) {
+      final confirmed = await _confirmRegenerate(todayFinished.length);
+      if (!mounted || !confirmed) return;
+    }
 
     try {
       await schedCtrl.generateAndSavePlan(
         userPreferences: learningState.userProfile?.preferences,
+        // [FIX M3] نمرر IDs الجلسات المنتهية اليوم لحمايتها من الحذف
+        preserveSessionIds: todayFinished.map((s) => s.id).toSet(),
       );
       if (!mounted) return;
 
@@ -67,14 +83,41 @@ class _SmartPlanScreenState extends State<SmartPlanScreen>
     }
   }
 
+  // [FIX M3] dialog تأكيد قبل إعادة التوليد إذا كانت هناك جلسات منتهية
+  Future<bool> _confirmRegenerate(int finishedCount) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('إعادة توليد الخطة؟'),
+        content: Text(
+          'لديك $finishedCount جلسة منتهية اليوم (مكتملة أو فائتة).\n'
+          'ستُحتفظ بها كما هي وسيتم توليد جلسات جديدة لبقية الأسبوع.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('توليد'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _markSession(String sessionId, SessionStatus status) async {
     if (status == SessionStatus.completed) {
       double? completion;
+      int? understanding;
       await showModalBottomSheet(
         context: context,
         builder: (ctx) => _CompletionSheet(
-          onConfirm: (rate) {
+          onConfirm: (rate, rating) {
             completion = rate;
+            understanding = rating;
           },
         ),
       );
@@ -83,6 +126,7 @@ class _SmartPlanScreenState extends State<SmartPlanScreen>
         sessionId,
         SessionStatus.completed,
         completionRate: completion!,
+        understandingRating: understanding,
       );
     } else {
       await context.read<AttendanceController>().updateSessionStatus(
@@ -123,7 +167,7 @@ class _SmartPlanScreenState extends State<SmartPlanScreen>
               children: [
                 _TodayTab(
                   sessions: attCtrl.todaySessions,
-                  weekSessions: schedCtrl.weekSessions, // ← أضف هذا
+                  weekSessions: schedCtrl.weekSessions,
                   onGenerate: _generatePlan,
                   onMark: _markSession,
                 ),
@@ -149,14 +193,13 @@ class _TodayTab extends StatelessWidget {
   });
 
   final List<StudySession> sessions;
-  final List<StudySession> weekSessions; // ← لمعرفة هل توجد خطة أسبوعية
+  final List<StudySession> weekSessions;
   final VoidCallback onGenerate;
   final Future<void> Function(String, SessionStatus) onMark;
 
   @override
   Widget build(BuildContext context) {
     if (sessions.isEmpty) {
-      // هل توجد خطة أسبوعية مُولَّدة؟
       final hasWeekPlan = weekSessions.isNotEmpty;
 
       return Center(
@@ -207,11 +250,18 @@ class _TodayTab extends StatelessWidget {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: sessions.length,
-      itemBuilder: (_, i) =>
-          _SessionCard(session: sessions[i], onMark: onMark),
+    return Column(
+      children: [
+        const _SwipeHintBanner(),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: sessions.length,
+            itemBuilder: (_, i) =>
+                _SessionCard(session: sessions[i], onMark: onMark),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -232,12 +282,47 @@ class _SessionCard extends StatelessWidget {
     }
   }
 
+  // [FIX M2] دالة مستقلة لحساب hasStarted بشكل صحيح —
+  // تتعامل مع صيغتَي الـ timeSlot: "8:00-10:00" و "8-10"
+  bool _sessionHasStarted() {
+    final now = DateTime.now();
+    final parts = session.timeSlot.split('-');
+    if (parts.isNotEmpty) {
+      // ندعم كلا الصيغتين: "8:00" و "8"
+      final startParts = parts[0].trim().split(':');
+      final startHour   = int.tryParse(startParts[0]) ?? 0;
+      final startMinute = startParts.length >= 2
+          ? (int.tryParse(startParts[1]) ?? 0)
+          : 0;
+
+      final sessionStart = DateTime(
+        session.scheduledDate.year,
+        session.scheduledDate.month,
+        session.scheduledDate.day,
+        startHour,
+        startMinute,
+      );
+      return !now.isBefore(sessionStart);
+    }
+    // fallback: نتحقق من بداية اليوم فقط
+    final sessionDay = DateTime(
+      session.scheduledDate.year,
+      session.scheduledDate.month,
+      session.scheduledDate.day,
+    );
+    return !now.isBefore(sessionDay);
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs        = Theme.of(context).colorScheme;
     final isDone    = session.status == SessionStatus.completed;
     final isSkipped = session.status == SessionStatus.skipped;
     final isPlanned = session.status == SessionStatus.planned;
+
+    // [FIX M2] نحسب hasStarted مرة واحدة هنا بدل الاعتماد على session.hasStarted
+    // لأن المشكلة كانت في parsing الـ timeSlot عند الصيغ المختلفة
+    final canSwipe = isPlanned && _sessionHasStarted();
 
     return Dismissible(
       key: Key(session.id),
@@ -254,7 +339,24 @@ class _SessionCard extends StatelessWidget {
         child: const Icon(Icons.close, color: Colors.white),
       ),
       confirmDismiss: (direction) async {
-        if (!isPlanned) return false;
+        // [FIX M2] منع swipe إذا:
+        // 1. الجلسة ليست planned
+        // 2. لم يحن موعدها بعد (اليوم لم يصل أو الوقت لم يحن)
+        if (!canSwipe) {
+          final msg = !isPlanned
+              ? 'تم تسجيل هذه الجلسة مسبقاً'
+              : 'لم يحن موعد هذه الجلسة بعد — تبدأ الساعة '
+                '${session.timeSlot.split('-').first.trim()}';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return false;
+        }
+
         if (direction == DismissDirection.startToEnd) {
           await onMark(session.id, SessionStatus.completed);
         } else {
@@ -276,7 +378,7 @@ class _SessionCard extends StatelessWidget {
               isDone    ? Icons.check_circle :
               isSkipped ? Icons.cancel       : Icons.book_outlined,
               color: isDone    ? Colors.green :
-                     isSkipped ? cs.error     : cs.primary,
+                    isSkipped ? cs.error     : cs.primary,
             ),
           ),
           title: Text(
@@ -425,7 +527,7 @@ class _WeekTab extends StatelessWidget {
 
 class _CompletionSheet extends StatefulWidget {
   const _CompletionSheet({required this.onConfirm});
-  final void Function(double) onConfirm;
+  final void Function(double rate, int understanding) onConfirm;
 
   @override
   State<_CompletionSheet> createState() => _CompletionSheetState();
@@ -433,6 +535,7 @@ class _CompletionSheet extends StatefulWidget {
 
 class _CompletionSheetState extends State<_CompletionSheet> {
   double _rate = 0.8;
+  int _understanding = 3;
 
   @override
   Widget build(BuildContext context) {
@@ -450,12 +553,72 @@ class _CompletionSheetState extends State<_CompletionSheet> {
             onChanged: (v) => setState(() => _rate = v),
           ),
           const SizedBox(height: 16),
+          Text('تقييم الفهم',
+              style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (i) {
+              final star = i + 1;
+              return GestureDetector(
+                onTap: () => setState(() => _understanding = star),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Icon(
+                    star <= _understanding ? Icons.star : Icons.star_border,
+                    color: Colors.amber,
+                    size: 32,
+                  ),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 16),
           FilledButton(
             onPressed: () {
-              widget.onConfirm(_rate);
+              widget.onConfirm(_rate, _understanding);
               Navigator.pop(context);
             },
             child: const Text('تأكيد'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SwipeHintBanner extends StatelessWidget {
+  const _SwipeHintBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final isRtl       = Directionality.of(context) == TextDirection.rtl;
+    final completeDir = isRtl ? '←' : '→';
+    final skipDir     = isRtl ? '→' : '←';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.swipe,
+              size: 18,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'مرّر $completeDir للإكمال • مرّر $skipDir للتخطي • لا يمكن التراجع',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
           ),
         ],
       ),

@@ -108,16 +108,21 @@ class AttendanceRecord {
       id: json['id'] as String,
       subjectId: json['subjectId'] as String,
       subjectName: json['subjectName'] as String,
-      date: (json['date'] as Timestamp).toDate(),
+      date: _parseDate(json['date']),
       status: status,
       lateMinutes: lateMinutes,
       understandingRating: understandingRating,
       lectureNumber: json['lectureNumber'] as int,
       notes: json['notes'] as String?,
-      createdAt: (json['createdAt'] as Timestamp).toDate(),
+      createdAt: _parseDate(json['createdAt']),
       sessionType: json['sessionType'] as String? ?? 'lec',
       lectureDurationMinutes: json['lectureDurationMinutes'] as int?,
     );
+  }
+
+  static DateTime _parseDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    return DateTime.parse(value as String);
   }
 
   /// يُرجع fallback آمن عند status غير معروف ويُسجِّل تحذيراً.
@@ -142,7 +147,23 @@ class AttendanceRecord {
         'sessionType': sessionType,
         if (lectureDurationMinutes != null)
           'lectureDurationMinutes': lectureDurationMinutes,
-      };
+  };
+
+  Map<String, dynamic> toJsonForCache() => {
+    'id': id,
+    'subjectId': subjectId,
+    'subjectName': subjectName,
+    'date': date.toIso8601String(),
+    'status': status.name,
+    'lateMinutes': lateMinutes,
+    'understandingRating': understandingRating,
+    'lectureNumber': lectureNumber,
+    'notes': notes,
+    'createdAt': createdAt.toIso8601String(),
+    'sessionType': sessionType,
+    if (lectureDurationMinutes != null)
+      'lectureDurationMinutes': lectureDurationMinutes,
+  };
 
   AttendanceRecord copyWith({
     String? id,

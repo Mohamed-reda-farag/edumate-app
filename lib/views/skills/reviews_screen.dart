@@ -119,9 +119,10 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                       final currentUid = _reviewService.currentUserId;
 
                       // مراجعات الآخرين فقط (مراجعتي تظهر في قسم منفصل أعلى)
-                      final otherReviews = allReviews
-                          .where((r) => r.userId != currentUid)
-                          .toList();
+                      final otherReviews =
+                          allReviews
+                              .where((r) => r.userId != currentUid)
+                              .toList();
 
                       // ── معالجة حالة عدم وجود مراجعات ────────────────────
                       if (otherReviews.isEmpty && _myReview == null) {
@@ -143,19 +144,25 @@ class _ReviewsScreenState extends State<ReviewsScreen> {
                           _RatingSummary(reviews: reviewsForStats),
                           const Divider(height: 1),
                           Expanded(
-                            child: otherReviews.isEmpty
-                                ? _buildOnlyMyReviewState()
-                                : ListView.separated(
-                                    padding: const EdgeInsets.only(
-                                      bottom: 80,
-                                      top: 8,
+                            child:
+                                otherReviews.isEmpty
+                                    ? _buildOnlyMyReviewState()
+                                    : ListView.separated(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 80,
+                                        top: 8,
+                                      ),
+                                      itemCount: otherReviews.length,
+                                      separatorBuilder:
+                                          (_, __) => const Divider(
+                                            indent: 72,
+                                            height: 1,
+                                          ),
+                                      itemBuilder:
+                                          (_, i) => _ReviewCard(
+                                            review: otherReviews[i],
+                                          ),
                                     ),
-                                    itemCount: otherReviews.length,
-                                    separatorBuilder: (_, __) =>
-                                        const Divider(indent: 72, height: 1),
-                                    itemBuilder: (_, i) =>
-                                        _ReviewCard(review: otherReviews[i]),
-                                  ),
                           ),
                         ],
                       );
@@ -259,7 +266,10 @@ class _MyReviewSection extends StatelessWidget {
             Expanded(
               child: Text(
                 'أكمل الكورس لتتمكن من كتابة مراجعة',
-                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                ),
               ),
             ),
           ],
@@ -448,15 +458,14 @@ class _WriteReviewSheetState extends State<_WriteReviewSheet> {
       _errorMsg = null;
     });
 
-    final service = ReviewService();
     final result =
         _isEditing
-            ? await service.updateReview(
+            ? await _MyReviewSection._service.updateReview(
               courseId: widget.courseId,
               rating: _rating,
               comment: comment,
             )
-            : await service.addReview(
+            : await _MyReviewSection._service.addReview(
               courseId: widget.courseId,
               rating: _rating,
               comment: comment,

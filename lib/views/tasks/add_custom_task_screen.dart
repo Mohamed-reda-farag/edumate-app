@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../controllers/task_controller.dart';
+import '../../models/task_model.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // AddCustomTaskScreen
@@ -24,6 +25,8 @@ class _AddCustomTaskScreenState extends State<AddCustomTaskScreen> {
   TimeOfDay? _endTime;
   // ignore: prefer_final_fields
   bool _isRecurring = false;
+  RecurrenceType _recurrenceType       = RecurrenceType.daily;
+  int            _reminderMinutesBefore = 60;
   bool _hasReminder = false;
   bool _isSaving    = false;
 
@@ -147,19 +150,127 @@ class _AddCustomTaskScreenState extends State<AddCustomTaskScreen> {
                   borderRadius: BorderRadius.circular(16)),
               child: Column(
                 children: [
-                  // [FIX] isRecurring معطَّل مؤقتاً — الخيار محفوظ في Firestore
-                  // لكن لا يوجد منطق تنفيذي خلفه بعد (تُفعَّل في تحديث قادم).
-                  // تعطيله يمنع إيهام المستخدم بوظيفة غير منفَّذة.
                   SwitchListTile(
                     title: const Text('مهمة متكررة'),
-                    subtitle: const Text('قريباً — هذه الميزة قيد التطوير'),
+                    subtitle: const Text('تذكير تلقائي يومياً أو أسبوعياً'),
                     secondary: Icon(
                       Icons.repeat,
-                      color: colorScheme.onSurfaceVariant,
+                      color: _isRecurring
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
                     ),
                     value: _isRecurring,
-                    onChanged: null, // معطَّل حتى يُنفَّذ منطق التكرار
+                    onChanged: _startTime != null
+                        ? (v) => setState(() {
+                              _isRecurring = v;
+                              // إيقاف التكرار يُعيد الإعدادات للافتراضي
+                              if (!v) {
+                                _recurrenceType        = RecurrenceType.daily;
+                                _reminderMinutesBefore = 60;
+                              }
+                            })
+                        : null,
                   ),
+                  // خيارات التكرار — تظهر فقط عند تفعيل isRecurring
+                  if (_isRecurring) ...[
+                    const Divider(height: 1, indent: 16),
+                    // نوع التكرار
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.event_repeat,
+                              size: 20,
+                              color: colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 12),
+                          const Text('نوع التكرار',
+                              style: TextStyle(fontSize: 15)),
+                          const Spacer(),
+                          SegmentedButton<RecurrenceType>(
+                            segments: const [
+                              ButtonSegment(
+                                value: RecurrenceType.daily,
+                                label: Text('يومي'),
+                                icon: Icon(Icons.today, size: 16),
+                              ),
+                              ButtonSegment(
+                                value: RecurrenceType.weekly,
+                                label: Text('أسبوعي'),
+                                icon: Icon(Icons.date_range, size: 16),
+                              ),
+                            ],
+                            selected: {_recurrenceType},
+                            onSelectionChanged: (s) =>
+                                setState(() => _recurrenceType = s.first),
+                            style: const ButtonStyle(
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 16),
+                    // مدة التذكير قبل المهمة
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.alarm,
+                              size: 20,
+                              color: colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 12),
+                          const Text('التذكير قبل المهمة بـ',
+                              style: TextStyle(fontSize: 15)),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              _reminderMinutesBefore == 0
+                                  ? 'في الموعد'
+                                  : _reminderMinutesBefore < 60
+                                      ? '$_reminderMinutesBefore د'
+                                      : '${_reminderMinutesBefore ~/ 60} س${_reminderMinutesBefore % 60 > 0 ? ' ${_reminderMinutesBefore % 60} د' : ''}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Slider(
+                      value: _reminderMinutesBefore.toDouble(),
+                      min: 0,
+                      max: 120,
+                      divisions: 8, // 0,15,30,45,60,75,90,105,120
+                      onChanged: (v) => setState(
+                          () => _reminderMinutesBefore = v.round()),
+                      activeColor: colorScheme.primary,
+                    ),
+                    Padding(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 28),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: const [
+                          Text('في الموعد',
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.grey)),
+                          Text('ساعتان',
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.grey)),
+                        ],
+                      ),
+                    ),
+                  ],
                   const Divider(height: 1, indent: 16),
                   SwitchListTile(
                     title: const Text('تذكيرني'),
@@ -171,8 +282,9 @@ class _AddCustomTaskScreenState extends State<AddCustomTaskScreen> {
                           : colorScheme.onSurfaceVariant,
                     ),
                     value: _hasReminder,
-                    // [FIX] التذكير يتطلب وقت بداية محدد
-                    onChanged: _startTime != null
+                    // التذكير يتطلب وقت بداية محدد
+                    // ويُعطَّل تلقائياً إذا كانت المهمة دورية (لها منطق تذكير خاص)
+                    onChanged: _startTime != null && !_isRecurring
                         ? (v) => setState(() => _hasReminder = v)
                         : null,
                   ),
@@ -339,6 +451,8 @@ class _AddCustomTaskScreenState extends State<AddCustomTaskScreen> {
             durationMinutes: durationMinutes,
             dueDate: dueDate,
             isRecurring: _isRecurring,
+            recurrenceType: _isRecurring ? _recurrenceType : null,
+            reminderMinutesBefore: _reminderMinutesBefore,
             hasReminder: _hasReminder,
           );
 

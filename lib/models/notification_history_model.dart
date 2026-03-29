@@ -99,37 +99,42 @@ class NotificationHistoryItem extends HiveObject {
     );
   }
 
-  /// وقت نسبي بالعربية (منذ كم؟)
-  ///
-  /// [FIX #11] تصحيح صياغة الساعات — كانت "منذ 5 ساعة" بدل "منذ 5 ساعات"
   String get relativeTime {
-    final now = DateTime.now();
-    final diff = now.difference(sentAt);
+    final diff = DateTime.now().difference(sentAt);
 
-    if (diff.isNegative) return 'الآن';
-    if (diff.inMinutes < 1) return 'الآن';
+    if (diff.isNegative || diff.inMinutes < 1) return 'الآن';
+
     if (diff.inMinutes < 60) {
       final m = diff.inMinutes;
-      // 1 دقيقة / 2-10 دقائق / 11+ دقيقة
-      final word = m == 1 ? 'دقيقة' : (m <= 10 ? 'دقائق' : 'دقيقة');
-      return 'منذ $m $word';
+      if (m == 1)  return 'منذ دقيقة';
+      if (m == 2)  return 'منذ دقيقتين';
+      if (m <= 10) return 'منذ $m دقائق';
+      return 'منذ $m دقيقة';
     }
+
     if (diff.inHours < 24) {
       final h = diff.inHours;
-      // 1 ساعة / 2-10 ساعات / 11+ ساعة
-      final word = h == 1 ? 'ساعة' : (h <= 10 ? 'ساعات' : 'ساعة');
-      return 'منذ $h $word';
+      if (h == 1)  return 'منذ ساعة';
+      if (h == 2)  return 'منذ ساعتين';
+      if (h <= 10) return 'منذ $h ساعات';
+      return 'منذ $h ساعة';
     }
-    if (diff.inDays < 7) {
-      final d = diff.inDays;
-      final word = d == 1 ? 'يوم' : (d <= 10 ? 'أيام' : 'يوم');
-      return 'منذ $d $word';
+
+    final d = diff.inDays;
+    if (d < 7) {
+      if (d == 1)  return 'منذ يوم';
+      if (d == 2)  return 'منذ يومين';
+      if (d <= 10) return 'منذ $d أيام';
+      return 'منذ $d يوماً';
     }
+
     return _formatDate(sentAt);
   }
 
   static String _formatDate(DateTime dt) {
-    return '${dt.day}/${dt.month}/${dt.year}';
+    final d = dt.day.toString().padLeft(2, '0');
+    final m = dt.month.toString().padLeft(2, '0');
+    return '$d/$m/${dt.year}';
   }
 
   Map<String, dynamic> toJson() => {

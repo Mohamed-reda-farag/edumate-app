@@ -56,12 +56,14 @@ class _RoadmapScreenState extends State<RoadmapScreen>
     }
   }
 
-  /// يحسب layout الـ roadmap مرة واحدة ويخزّن النتيجة
-  /// يُستدعى فقط عند تغيّر بيانات المجال أو بيانات المستخدم
   void _computeLayout(FieldModel field, GlobalLearningState state) {
-    // إذا لم تتغير البيانات لا داعي لإعادة الحساب
-    if (_cachedFieldId == field.id &&
-        _cachedNodes.isNotEmpty) {
+    // إذا لم يتغير المجال — نُعيد حساب skillStates فقط (خفيف) دون إعادة حساب layout كامل
+    if (_cachedFieldId == field.id && _cachedNodes.isNotEmpty) {
+      _cachedSkillStates = {
+        for (final node in _cachedNodes)
+          node.skillId: _getSkillState(
+              node.skillId, field.roadmap.edges, state, field.skills),
+      };
       return;
     }
 
@@ -490,6 +492,8 @@ Widget _buildRoadmap(
                     child: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.pop(context);
+                        // للمهارة النشطة: اذهب لأول كورس متاح مباشرةً
+                        // للمهارة المكتملة: اذهب لتفاصيل المهارة للمراجعة
                         context.push(
                             '/skill-details/${widget.fieldId}/${node.skillId}');
                       },

@@ -113,7 +113,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ],
                     ),
                     TextButton(
-                      // ✅ FIX #11: استخدام go_router بدلاً من Navigator
                       onPressed: () => context.push('/forgot-password'),
                       child: Text(
                         'نسيت كلمة المرور؟',
@@ -131,7 +130,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 Consumer<AuthController>(
                   builder: (context, auth, _) => Column(
                     children: [
-                      // ✅ FIX #5 + #3: نعرض statusMessage (يشمل النجاح والخطأ)
                       if (auth.statusMessage != null)
                         _buildMessageCard(auth.statusMessage!, isSuccess: auth.isSuccess),
 
@@ -190,7 +188,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     Text('ليس لديك حساب؟ ', style: Theme.of(context).textTheme.bodyMedium),
                     GestureDetector(
-                      // ✅ FIX #11: استخدام go_router بدلاً من Navigator
                       onTap: () => context.push('/signup'),
                       child: Text(
                         'إنشاء حساب جديد',
@@ -346,9 +343,6 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
-  // ✅ FIX: استخدام AuthService مباشرةً بدلاً من AuthController
-  // لأن AuthController.resetPassword() يستدعي notifyListeners()
-  // مما يُشغّل GoRouter redirect ويعيد التطبيق لشاشة الدخول
   final _authService = AuthService();
   bool _isLoading = false;
   String? _message;
@@ -367,7 +361,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        // ✅ FIX #11: استخدام context.pop() بدلاً من Navigator.pop
         leading: IconButton(
           onPressed: () => context.pop(),
           icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onBackground),
@@ -511,7 +504,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      // ✅ FIX #11: استخدام context.pop() بدلاً من Navigator.pop
                       onPressed: () => context.pop(),
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),

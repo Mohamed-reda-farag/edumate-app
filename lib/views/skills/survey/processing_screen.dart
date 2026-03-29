@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../controllers/global_learning_state.dart';
 
@@ -79,18 +78,27 @@ class _ProcessingScreenState extends State<ProcessingScreen>
       setState(() => _currentStep = 2);
       await Future.delayed(const Duration(milliseconds: 1000));
 
-      // Step 4: Creating user profile with basic info
+      // Step 4: Creating user profile with full preferences
       setState(() => _currentStep = 3);
 
-      // إنشاء البروفايل الأساسي
+      // تجميع preferences كاملة من الاستبيان لتمريرها دفعة واحدة —
+      // يجب أن تكون جاهزة قبل createUserProfile لأن _initializeFieldProgress
+      // تقرأ skillLevels منها فوراً لتحديد initialProgress لكل مهارة.
+      final preferences = {
+        'skillLevels': widget.surveyData['skillLevels'] ?? {},
+        'schedule': widget.surveyData['schedule'] ?? {},
+        'sessionDuration': widget.surveyData['sessionDuration'],
+        'goals': widget.surveyData['goals'] ?? {},
+        'surveyCompletedAt': DateTime.now().toIso8601String(),
+      };
+
+      // إنشاء البروفايل مع preferences و skillLevels دفعة واحدة
       await globalState.createUserProfile(
         userId: user.uid,
         primaryFieldId: widget.surveyData['primaryFieldId'],
         secondaryFieldId: widget.surveyData['secondaryFieldId'],
+        preferences: preferences,
       );
-
-      // حفظ باقي بيانات الاستبيان في preferences
-      await _saveUserPreferences(user.uid);
 
       // ✅ تعليم الاستبيان كمكتمل
       final prefs = await SharedPreferences.getInstance();
@@ -108,32 +116,6 @@ class _ProcessingScreenState extends State<ProcessingScreen>
         _hasError = true;
         _errorMessage = e.toString();
       });
-    }
-  }
-
-  /// حفظ تفضيلات المستخدم من الاستبيان
-  Future<void> _saveUserPreferences(String userId) async {
-    try {
-      final preferences = {
-        'skillLevels': widget.surveyData['skillLevels'] ?? {},
-        'schedule': widget.surveyData['schedule'] ?? {},
-        'sessionDuration': widget.surveyData['sessionDuration'],
-        'goals': widget.surveyData['goals'] ?? {},
-        'surveyCompletedAt': DateTime.now().toIso8601String(),
-      };
-
-      // حفظ في Firestore
-      await FirebaseFirestore.instance
-          .collection('user_profiles')
-          .doc(userId)
-          .update({
-        'preferences': preferences,
-      });
-
-      debugPrint('✅ User preferences saved');
-    } catch (e) {
-      debugPrint('⚠️ Error saving preferences: $e');
-      // لا نرمي الخطأ هنا لأن البروفايل الأساسي تم إنشاؤه
     }
   }
 

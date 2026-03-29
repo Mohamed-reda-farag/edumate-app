@@ -267,7 +267,10 @@ class TaskController extends ChangeNotifier {
     try {
       final existingRecords =
           _attendanceController.getSubjectRecords(task.subjectId ?? '');
-      final lectureNumber = existingRecords.length + 1;
+      // نحسب فقط المحاضرات (lec) — السيكشن والمعمل لا تُحسب في الترقيم
+      final lectureNumber = existingRecords
+              .where((r) => r.sessionType == 'lec')
+              .length + 1;
 
       final recordId =
           '${task.subjectId}_${DateTime.now().millisecondsSinceEpoch}';
@@ -309,6 +312,14 @@ class TaskController extends ChangeNotifier {
         updatedAt: DateTime.now(),
       );
       await _taskRepo.updateDailyTask(updatedTask);
+
+      // [FIX] تحديث _dailyTasks محلياً فوراً بدون انتظار الـ Stream —
+      // كان recordLectureAttendance لا يُحدِّث القائمة محلياً بعكس
+      // updateStudySessionStatus، مما يُسبب تأخيراً مرئياً في الـ UI.
+      _dailyTasks = _dailyTasks
+          .map((t) => t.id == taskId ? updatedTask : t)
+          .toList();
+      notifyListeners();
 
       // [NOTIF] إلغاء إشعار "هل حضرت؟" — المستخدم سجّل الحضور فعلاً
       // fire-and-forget: لا نحتاج await لأنه غير حرج
@@ -368,6 +379,12 @@ class TaskController extends ChangeNotifier {
         updatedAt: DateTime.now(),
       );
       await _taskRepo.updateDailyTask(updatedTask);
+
+      // تحديث _dailyTasks محلياً فوراً بدون انتظار الـ Stream
+      _dailyTasks = _dailyTasks
+          .map((t) => t.id == taskId ? updatedTask : t)
+          .toList();
+      notifyListeners();
 
       if (newStatus == StudySessionTaskStatus.completed &&
           task.studySessionId != null) {
@@ -550,7 +567,6 @@ class TaskController extends ChangeNotifier {
   // ══════════════════════════════════════════════════════════════════════════
 
   /// إضافة مهمة مخصصة جديدة.
-  /// [dueDate] مستقل عن [scheduledDate] — يُمرَّر بشكل منفصل.
   Future<void> addCustomTask({
     required String title,
     String? description,
@@ -559,6 +575,8 @@ class TaskController extends ChangeNotifier {
     int? durationMinutes,
     DateTime? dueDate,
     bool isRecurring = false,
+    RecurrenceType? recurrenceType,
+    int reminderMinutesBefore = 60,
     bool hasReminder = false,
   }) async {
     final userId = _getUserId();
@@ -581,6 +599,8 @@ class TaskController extends ChangeNotifier {
         timeSlot: timeSlot,
         durationMinutes: durationMinutes,
         isRecurring: isRecurring,
+        recurrenceType: recurrenceType,
+        reminderMinutesBefore: reminderMinutesBefore,
         hasReminder: hasReminder,
         dueDate: dueDate,
         createdAt: now,
@@ -653,10 +673,22 @@ class TaskController extends ChangeNotifier {
   Future<void> deleteCustomTask(String taskId) async {
     _setLoading(true);
     try {
+      // [FIX] نحفظ مرجع المهمة قبل الحذف —
+      // كان البحث يتم بعد deleteCustomTask فإذا وصل حدث الـ Stream
+      // قبله وجدنا task == null وأرسلنا isRecurring: false خطأً.
+      final task = _customTasks.cast<TaskModel?>().firstWhere(
+            (t) => t?.id == taskId,
+            orElse: () => null,
+          );
+
       await _taskRepo.deleteCustomTask(taskId);
 
-      // [NOTIF] إلغاء تذكير المهمة المخصصة عند الحذف أيضاً
-      _notifController.onCustomTaskCompleted(taskId).ignore();
+      _notifController
+          .onCustomTaskDeleted(
+            taskId,
+            isRecurring: task?.isRecurring ?? false,
+          )
+          .ignore();
 
       _error = null;
     } catch (e) {

@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'package:get/get.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -36,7 +37,6 @@ import 'views/skills/active_skills_screen.dart';
 import 'views/skills/learned_skills_screen.dart';
 import 'views/skills/active_courses_screen.dart';
 import 'views/skills/completed_courses_screen.dart';
-import 'views/skills/my_fields_screen.dart';
 import 'views/skills/field_details_screen.dart';
 import 'views/skills/roadmap_screen.dart';
 import 'views/skills/skill_details_screen.dart';
@@ -71,91 +71,6 @@ import 'models/subject_model.dart';
 import 'models/task_model.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-
-// ============================================
-// Learning Context Management
-// ============================================
-class LearningNavigationContext {
-  static final LearningNavigationContext _instance =
-      LearningNavigationContext._internal();
-  factory LearningNavigationContext() => _instance;
-  LearningNavigationContext._internal();
-
-  final List<ScreenContext> _contextStack = [];
-  static const int _maxStackSize = 10;
-
-  void pushContext(ScreenContext context) {
-    _contextStack.add(context);
-    if (_contextStack.length > _maxStackSize) {
-      _contextStack.removeRange(0, _contextStack.length - _maxStackSize);
-    }
-  }
-
-  ScreenContext? getCurrentContext() {
-    return _contextStack.isNotEmpty ? _contextStack.last : null;
-  }
-
-  void popContext() {
-    if (_contextStack.isNotEmpty) {
-      _contextStack.removeLast();
-    }
-  }
-
-  void clearAll() {
-    _contextStack.clear();
-  }
-
-  bool hasSkillContext(String skillId) {
-    return _contextStack.any((ctx) => ctx.sourceSkillId == skillId);
-  }
-
-  bool hasCourseContext(String courseId) {
-    return _contextStack.any((ctx) => ctx.sourceCourseId == courseId);
-  }
-}
-
-// Screen Context Model
-class ScreenContext {
-  final String screenName;
-  final String? sourceSkillId;
-  final String? sourceCourseId;
-  final String? sourceFieldId;
-  final Map<String, dynamic> additionalData;
-  final DateTime timestamp;
-
-  ScreenContext({
-    required this.screenName,
-    this.sourceSkillId,
-    this.sourceCourseId,
-    this.sourceFieldId,
-    this.additionalData = const {},
-  }) : timestamp = DateTime.now();
-
-  Map<String, dynamic> toMap() {
-    return {
-      'screenName': screenName,
-      'sourceSkillId': sourceSkillId,
-      'sourceCourseId': sourceCourseId,
-      'sourceFieldId': sourceFieldId,
-      'additionalData': additionalData,
-      'timestamp': timestamp.toIso8601String(),
-    };
-  }
-
-  factory ScreenContext.fromMap(Map<String, dynamic> map) {
-    return ScreenContext(
-      screenName: map['screenName'] as String,
-      sourceSkillId: map['sourceSkillId'] as String?,
-      sourceCourseId: map['sourceCourseId'] as String?,
-      sourceFieldId: map['sourceFieldId'] as String?,
-      additionalData: map['additionalData'] as Map<String, dynamic>? ?? {},
-    );
-  }
-
-  bool get isFromSkillScreen => sourceSkillId != null;
-  bool get isFromCourseScreen => sourceCourseId != null;
-  bool get isFromFieldScreen => sourceFieldId != null;
-}
 
 // ============================================
 // Auth Notifier
@@ -315,7 +230,7 @@ GoRouter createAppRouter(GoRouterAuthNotifier goRouterNotifier) {
   return GoRouter(
     initialLocation: '/splash',
     navigatorKey: navigatorKey,
-    debugLogDiagnostics: true,
+    debugLogDiagnostics: kDebugMode,
     refreshListenable: goRouterNotifier,
 
     errorBuilder: (context, state) {
@@ -716,7 +631,7 @@ GoRouter createAppRouter(GoRouterAuthNotifier goRouterNotifier) {
               key: state.pageKey,
               child: ErrorPage(
                 message: 'حدث خطأ في تحميل المجال',
-                onRetry: () => context.go('/my-fields'),
+                onRetry: () => context.go('/fields-hub?tab=0'),
               ),
             );
           }
@@ -865,13 +780,6 @@ GoRouter createAppRouter(GoRouterAuthNotifier goRouterNotifier) {
             ),
       ),
 
-      GoRoute(
-        path: '/my-fields',
-        pageBuilder:
-            (context, state) =>
-                MaterialPage(key: state.pageKey, child: const MyFieldsScreen()),
-      ),
-
       // ════════════════════════════════════════════════════════
       // Notification Routes
       // ════════════════════════════════════════════════════════
@@ -960,8 +868,6 @@ extension AppRouterExtension on GoRouter {
 // AppNavigation Helper
 // ============================================
 class AppNavigation {
-  static final _learningContext = LearningNavigationContext();
-
   static GoRouter get router {
     final context = navigatorKey.currentContext;
     if (context != null) {
@@ -1250,6 +1156,11 @@ class AppNavigation {
         case 'summary_weekly':
           router.safePush('/notifications/history');
           break;
+        
+        // ── تذكير خطة الدراسة → شاشة خطة الدراسة الذكية
+        case 'study_plan_reminder':
+          router.safePush('/schedule/plan');
+          break;
 
         // ── افتراضي → الرئيسية
         default:
@@ -1277,7 +1188,6 @@ class AppNavigation {
 
   static void goBack() {
     try {
-      _learningContext.popContext();
       if (router.canPop()) {
         router.pop();
       } else {

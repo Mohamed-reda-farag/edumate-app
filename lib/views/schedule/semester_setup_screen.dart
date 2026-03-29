@@ -145,18 +145,14 @@ class _SemesterSetupScreenState extends State<SemesterSetupScreen> {
 
       await semesterCtrl.saveSemester(semester);
 
-      // DEBUG مؤقت
-      debugPrint('[DEBUG-ATT] _attendedSoFar: $_attendedSoFar');
-      debugPrint('[DEBUG-ATT] _finalSubjects IDs: ${_finalSubjects.map((s) => s.id).toList()}');
-      debugPrint('[DEBUG-ATT] _weeksAgo: $_weeksAgo');
-
       if (_weeksAgo > 0) {
         await _initializePastAttendance(schedCtrl, finalSubjects);
       }
 
-      schedCtrl.reset();
-
-      if (mounted) context.go('/schedule');
+      if (mounted) {
+        schedCtrl.markUninitialized();
+        context.go('/schedule');
+      }
     } catch (e) {
       debugPrint('_finish error: $e');
       if (mounted) {
@@ -240,11 +236,12 @@ class _SemesterSetupScreenState extends State<SemesterSetupScreen> {
                 ),
                 // ── Page 3 ───────────────────────────────────────────────
                 _ProgressInitPage(
-                  // [FIX S6] نمرر _finalSubjects ذات IDs الحقيقية
                   subjects: _finalSubjects,
                   weeksAgo: _weeksAgo,
+                  totalWeeks: _totalWeeks,
                   attendedSoFar: _attendedSoFar,
                   totalLectures: _lecturesPerSubject,
+                  isSummer: widget.isSummer,
                   onAttendedChanged: (id, v) =>
                       setState(() => _attendedSoFar[id] = v),
                   onFinish: _finish,
@@ -527,25 +524,38 @@ class _ProgressInitPage extends StatelessWidget {
   const _ProgressInitPage({
     required this.subjects,
     required this.weeksAgo,
+    required this.totalWeeks,
     required this.attendedSoFar,
     required this.totalLectures,
+    required this.isSummer,          // [FIX] مطلوب لتحديد معدل المحاضرات
     required this.onAttendedChanged,
     required this.onFinish,
     required this.isSaving,
     required this.onBack,
   });
-
+ 
   final List<Subject> subjects;
   final int weeksAgo;
+  final int totalWeeks;
   final Map<String, int> attendedSoFar;
   final int totalLectures;
+  final bool isSummer;               // [FIX]
   final void Function(String, int) onAttendedChanged;
   final VoidCallback onFinish;
   final bool isSaving;
   final VoidCallback onBack;
-
+ 
+  // [FIX] حساب الحد الأقصى للمحاضرات المحضورة بناءً على نوع الترم
+  int _maxAttendable() {
+    // الصيفي: محاضرتان/أسبوع — العادي: محاضرة/أسبوع
+    final lecturesPerWeek = isSummer ? 2 : 1;
+    return (weeksAgo * lecturesPerWeek).clamp(0, totalLectures);
+  }
+ 
   @override
   Widget build(BuildContext context) {
+    final maxAttendable = _maxAttendable();
+ 
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
@@ -558,14 +568,34 @@ class _ProgressInitPage extends StatelessWidget {
               : 'مضى $weeksAgo أسبوع — كم محاضرة حضرت لكل مادة حتى الآن؟',
           style: const TextStyle(color: Colors.grey),
         ),
+        // [FIX] نوضح للمستخدم الحد الأقصى المنطقي
+        if (weeksAgo > 0) ...[
+          const SizedBox(height: 4),
+          Text(
+            isSummer
+                ? 'الحد الأقصى: $maxAttendable محاضرة ($weeksAgo أسبوع × 2 محاضرة/أسبوع)'
+                : 'الحد الأقصى: $maxAttendable محاضرة ($weeksAgo أسبوع × 1 محاضرة/أسبوع)',
+            style: const TextStyle(
+              color: Colors.blue,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
         const SizedBox(height: 24),
-
+ 
         if (weeksAgo > 0 && subjects.isNotEmpty)
           ...subjects.map((subject) {
-            final attended = attendedSoFar[subject.id] ?? 0;
+            // [FIX] نتأكد أن القيمة المخزَّنة لا تتجاوز الحد الأقصى
+            final attended =
+                (attendedSoFar[subject.id] ?? 0).clamp(0, maxAttendable);
+ 
+            final effectiveTotalWeeks = totalWeeks > 0 ? totalWeeks : 16;
             final expectedSoFar =
-                ((weeksAgo / 16) * totalLectures).round().clamp(0, totalLectures);
-
+                ((weeksAgo / effectiveTotalWeeks) * totalLectures)
+                    .round()
+                    .clamp(0, maxAttendable);
+ 
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
               child: Padding(
@@ -585,23 +615,27 @@ class _ProgressInitPage extends StatelessWidget {
                             _DifficultyBadge(difficulty: subject.difficulty),
                           ],
                         ),
-                        Text('$attended / $totalLectures',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.bold,
-                            )),
+                        // [FIX] نعرض الحد الأقصى بوضوح
+                        Text(
+                          '$attended / $maxAttendable',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'المتوقع بعد $weeksAgo أسبوع: ~$expectedSoFar محاضرة',
-                      style:
-                          const TextStyle(fontSize: 11, color: Colors.grey),
+                      style: const TextStyle(
+                          fontSize: 11, color: Colors.grey),
                     ),
                     Slider(
                       min: 0,
-                      max: totalLectures.toDouble(),
-                      divisions: totalLectures,
+                      // [FIX] الحد الأقصى = maxAttendable وليس totalLectures
+                      max: maxAttendable.toDouble(),
+                      divisions: maxAttendable > 0 ? maxAttendable : 1,
                       value: attended.toDouble(),
                       onChanged: (v) =>
                           onAttendedChanged(subject.id, v.toInt()),
@@ -611,7 +645,7 @@ class _ProgressInitPage extends StatelessWidget {
               ),
             );
           }),
-
+ 
         const SizedBox(height: 32),
         FilledButton(
           onPressed: isSaving ? null : onFinish,

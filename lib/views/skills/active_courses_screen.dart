@@ -73,8 +73,8 @@ class ActiveCoursesScreenState extends State<ActiveCoursesScreen> {
           return _buildLoadingState();
         }
 
-        if (state.lastError != null) {
-          return _buildErrorState(state.lastError!);
+        if (state.userProfileError != null) {
+          return _buildErrorState(state.userProfileError!);
         }
 
         if (!state.hasUserProfile) {
@@ -112,7 +112,7 @@ class ActiveCoursesScreenState extends State<ActiveCoursesScreen> {
           child: Column(
             children: [
               _buildHeaderStats(activeCourses.length, totalHours),
-              if (!widget.embedded) _buildFilterChips(),
+              if (!widget.embedded) _buildFilterChips(courseDataMap),
               Expanded(
                 child: ListView.builder(
                   padding: const EdgeInsets.only(bottom: 80),
@@ -177,22 +177,18 @@ class ActiveCoursesScreenState extends State<ActiveCoursesScreen> {
     );
   }
 
-  /// استخراج المنصات المتاحة ديناميكياً من الكورسات الفعلية
-  List<String> _getAvailablePlatforms(GlobalLearningState state) {
-    final platforms = state
-        .getActiveCourses()
-        .map((c) => state.getCourseData(c.fieldId, c.skillId, c.courseId)?.platform)
-        .whereType<String>()
+  /// استخراج المنصات المتاحة من courseDataMap المحسوب مسبقاً
+  List<String> _getAvailablePlatforms(Map<String, CourseModel?> courseDataMap) {
+    return courseDataMap.values
+        .whereType<CourseModel>()
+        .map((c) => c.platform)
         .toSet()
         .toList()
       ..sort();
-    return platforms;
   }
 
-  Widget _buildFilterChips() {
-    return Consumer<GlobalLearningState>(
-      builder: (context, state, _) {
-        final platforms = _getAvailablePlatforms(state);
+  Widget _buildFilterChips(Map<String, CourseModel?> courseDataMap) {
+    final platforms = _getAvailablePlatforms(courseDataMap);
 
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -246,8 +242,6 @@ class ActiveCoursesScreenState extends State<ActiveCoursesScreen> {
             ],
           ),
         );
-      },
-    );
   }
 
   Widget _buildSkillGroup(
@@ -829,15 +823,15 @@ class ActiveCoursesScreenState extends State<ActiveCoursesScreen> {
         });
         break;
       case _SortOption.skill:
-        // pre-map أسماء المهارات مرة واحدة قبل الـ sort
+        // pre-map أسماء المهارات بـ key مركّب (fieldId+skillId) لتجنب التعارض
         final skillNames = {
           for (final c in courses)
-            c.courseId:
+            '${c.fieldId}_${c.skillId}':
                 state.getSkillData(c.fieldId, c.skillId)?.name ?? c.skillId
         };
         sorted.sort((a, b) {
-          return (skillNames[a.courseId] ?? '')
-              .compareTo(skillNames[b.courseId] ?? '');
+          return (skillNames['${a.fieldId}_${a.skillId}'] ?? '')
+              .compareTo(skillNames['${b.fieldId}_${b.skillId}'] ?? '');
         });
         break;
     }

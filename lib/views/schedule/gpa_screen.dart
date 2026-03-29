@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../controllers/semester_controller.dart';
+import '../../models/gpa_model.dart';
 
 // ─── نظام تقديرات GPA ────────────────────────────────────────────────────────
 
@@ -13,55 +16,6 @@ extension GpaScaleLabel on GpaScale {
   String get label => this == GpaScale.scale4 ? 'نظام 4.0' : 'نظام 5.0';
 }
 
-class GradeOption {
-  final String letter;
-  final double points4;
-  final double points5;
-
-  const GradeOption(this.letter, this.points4, this.points5);
-
-  double points(GpaScale scale) =>
-      scale == GpaScale.scale4 ? points4 : points5;
-}
-
-const List<GradeOption> kGrades = [
-  GradeOption('A+', 4.0, 5.0),
-  GradeOption('A',  4.0, 5.0),
-  GradeOption('A-', 3.7, 4.75),
-  GradeOption('B+', 3.3, 4.5),
-  GradeOption('B',  3.0, 4.0),
-  GradeOption('B-', 2.7, 3.75),
-  GradeOption('C+', 2.3, 3.5),
-  GradeOption('C',  2.0, 3.0),
-  GradeOption('C-', 1.7, 2.75),
-  GradeOption('D+', 1.3, 2.5),
-  GradeOption('D',  1.0, 2.0),
-  GradeOption('F',  0.0, 0.0),
-];
-
-GradeOption? gradeByLetter(String l) =>
-    kGrades.cast<GradeOption?>().firstWhere(
-      (g) => g?.letter == l,
-      orElse: () => null,
-    );
-
-// [FIX P3-5] مفاتيح SharedPreferences بـ uid prefix
-//
-// المشكلة القديمة:
-//   const String _kGpaPrevHours = 'gpa_prev_hours'  ← بدون uid
-//   const String _kGpaPrevGpa   = 'gpa_prev_gpa'
-//   const String _kGpaScale     = 'gpa_scale'
-//
-//   إذا سجّل مستخدمان دخولاً على نفس الجهاز (تسجيل خروج + تسجيل دخول):
-//   → يرى المستخدم الثاني بيانات GPA المستخدم الأول
-//   → قد يحفظ بياناته فوق بيانات المستخدم الأول
-//
-// الإصلاح: إضافة uid prefix لكل مفتاح
-//   → كل مستخدم له مساحة منفصلة في SharedPreferences
-//
-// ملاحظة: المفاتيح القديمة (بدون uid) لن تُقرأ بعد الآن.
-// المستخدم الحالي سيبدأ بقيم افتراضية عند أول تشغيل بعد الترقية —
-// وهذا مقبول لأن بيانات GPA ليست حرجة ويُعاد إدخالها بسهولة.
 const String _kGpaPrevHoursSuffix = 'gpa_prev_hours';
 const String _kGpaPrevGpaSuffix   = 'gpa_prev_gpa';
 const String _kGpaScaleSuffix     = 'gpa_scale';
@@ -94,6 +48,7 @@ class _GpaScreenState extends State<GpaScreen> {
 
   // [FIX P3-5] uid يُقرأ مرة واحدة في initState ويُستخدم في كل عمليات الـ cache
   late final String _uid;
+  Timer? _saveDebounce;
 
   // [FIX P3-5] مفاتيح الـ cache مع uid prefix
   String get _kPrevHours => '${_uid}_$_kGpaPrevHoursSuffix';
@@ -116,6 +71,7 @@ class _GpaScreenState extends State<GpaScreen> {
 
   @override
   void dispose() {
+    _saveDebounce?.cancel();
     _prevHoursCtrl.removeListener(_persistData);
     _prevGpaCtrl.removeListener(_persistData);
     _prevHoursCtrl.dispose();
@@ -141,12 +97,15 @@ class _GpaScreenState extends State<GpaScreen> {
     });
   }
 
-  // [FIX P3-5] استخدام المفاتيح المُعرَّفة بـ uid prefix
-  Future<void> _persistData() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kPrevHours, _prevHoursCtrl.text);
-    await prefs.setString(_kPrevGpa,   _prevGpaCtrl.text);
-    await prefs.setInt(_kScale, _scale == GpaScale.scale5 ? 5 : 4);
+  void _persistData() {
+    // debounce: ننتظر 500ms بعد آخر تغيير قبل الحفظ
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 500), () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kPrevHours, _prevHoursCtrl.text);
+      await prefs.setString(_kPrevGpa,   _prevGpaCtrl.text);
+      await prefs.setInt(_kScale, _scale == GpaScale.scale5 ? 5 : 4);
+    });
   }
 
   void _loadSubjects() {

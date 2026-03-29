@@ -148,14 +148,19 @@ class _SkillDetailsScreenState extends State<SkillDetailsScreen>
                               const SizedBox(height: 16),
                             ],
 
-                            // ── زر الاختبار للخبير (بدون شروط) ─────────────
+                            // ── زر الاختبار للخبير ──────────────────────────
+                            // يظهر دائماً ما لم يجتز الاختبار أو استنفد المحاولات.
+                            // الخبير يبدأ بـ 80% مباشرة — لا نشترط تقدماً معيناً.
                             if (_getUserSkillLevel(state) == 'expert' &&
+                                !(skillProgress?.isAssessmentPassed ?? false) &&
                                 (skillProgress?.assessmentAttempts ?? 0) < 3)
                               _buildExpertAssessmentButton(state),
 
                             // ── زر الاختبار للمستويات الأخرى (عند 80%) ─────
+                            // يظهر عند وصول التقدم لـ 80% ويختفي بعد نجاح الاختبار.
                             if (_getUserSkillLevel(state) != 'expert' &&
                                 (skillProgress?.progressPercentage ?? 0) >= 80 &&
+                                !(skillProgress?.isAssessmentPassed ?? false) &&
                                 (skillProgress?.assessmentAttempts ?? 0) < 3)
                               _buildAssessmentButton(state),
 
@@ -232,7 +237,6 @@ class _SkillDetailsScreenState extends State<SkillDetailsScreen>
                               const SizedBox(height: 12),
                             ],
 
-                            // ── Courses
                             // ── Courses
                             _CoursesSectionHeader(count: skill.courses.length),
                             const SizedBox(height: 8),

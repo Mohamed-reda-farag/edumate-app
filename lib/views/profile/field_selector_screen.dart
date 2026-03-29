@@ -22,7 +22,21 @@ class FieldSelectorScreen extends StatefulWidget {
 class _FieldSelectorScreenState extends State<FieldSelectorScreen> {
   String _searchQuery = '';
   String? _selectedCategory;
-  
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureFieldsLoaded());
+  }
+
+  Future<void> _ensureFieldsLoaded() async {
+    final globalState = context.read<GlobalLearningState>();
+    const int expectedMinFields = 10;
+    if (globalState.allFields.length < expectedMinFields) {
+      await globalState.loadAllFields();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(

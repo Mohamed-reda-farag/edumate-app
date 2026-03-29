@@ -17,7 +17,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final ctrl = context.read<GamificationController>();
-      await ctrl.init();
+      if (!ctrl.isInitialized) await ctrl.init();
       if (mounted && ctrl.newlyUnlocked.isNotEmpty) {
         _showNewAchievementsDialog(ctrl.newlyUnlocked);
       }

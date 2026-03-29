@@ -31,7 +31,7 @@ class _PrimaryFieldStepState extends State<PrimaryFieldStep> {
   Future<void> _loadFieldsIfNeeded() async {
     final globalState = context.read<GlobalLearningState>();
 
-    // انتظر انتهاء أي تحميل جارٍ (مثل loadFieldsBatch من loadUserProfile)
+    // انتظر انتهاء أي تحميل جارٍ
     if (globalState.isLoadingStaticData) {
       await Future.doWhile(() async {
         await Future.delayed(const Duration(milliseconds: 100));
@@ -39,10 +39,10 @@ class _PrimaryFieldStepState extends State<PrimaryFieldStep> {
       });
     }
 
-    // بعد الانتظار، إذا كانت المجالات لا تزال فارغة أو غير مكتملة → حمّل الكل
-    // هذا يضمن أن المستخدم الجديد يرى جميع المجالات وليس فقط مجالات المستخدم السابق
     if (!mounted) return;
-    if (globalState.allFields.isEmpty) {
+
+    const int expectedMinFields = 10; // حد أدنى معقول — أقل منه يعني بيانات ناقصة
+    if (globalState.allFields.length < expectedMinFields) {
       await globalState.loadAllFields();
     }
   }

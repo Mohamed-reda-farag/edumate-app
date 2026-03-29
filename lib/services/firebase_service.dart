@@ -36,9 +36,12 @@ class FirebaseService {
     if (_isInitialized) return;
 
     try {
-      // تهيئة Hive للتخزين المحلي
-      await Hive.initFlutter();
-      _cacheBox = await Hive.openBox<String>('fields_cache');
+      // فتح الـ box مباشرة — Hive مهيأ بالفعل من main.dart
+      if (Hive.isBoxOpen('fields_cache')) {
+        _cacheBox = Hive.box<String>('fields_cache');
+      } else {
+        _cacheBox = await Hive.openBox<String>('fields_cache');
+      }
       
       // تفعيل Offline Persistence في Firestore
       _firestore.settings = const Settings(
@@ -116,43 +119,69 @@ class FirebaseService {
     _ensureInitialized();
 
     try {
-      // ── محاولة إرجاع جميع المجالات من Cache أولاً ────────────────────────
+      // ── تحديد المجالات المنتهية والصالحة من Cache ────────────────────────
       final cachedFields = _getAllCachedFields();
-      if (cachedFields.isNotEmpty) {
-        // تحقق من أن كل المجالات موجودة في cache وغير منتهية
-        final allValid = cachedFields.values.every(
-          (field) => !_isCacheExpired(field.id),
+      final expiredIds = cachedFields.values
+          .where((field) => _isCacheExpired(field.id))
+          .map((field) => field.id)
+          .toList();
+
+      // كل المجالات صالحة — أرجعها من Cache مباشرةً
+      if (cachedFields.isNotEmpty && expiredIds.isEmpty) {
+        debugPrint('📦 Loaded ${cachedFields.length} fields from cache');
+        return cachedFields;
+      }
+
+      // ── جلب المنتهية فقط من Firestore (أو كلها إذا كان Cache فارغاً) ──────
+      final idsToFetch = expiredIds.isNotEmpty ? expiredIds : null;
+      debugPrint('☁️ Fetching ${idsToFetch?.length ?? 'all'} fields from Firestore...');
+
+      final Map<String, FieldModel> freshFields = {};
+
+      if (idsToFetch != null) {
+        // fetch المنتهية فقط بالتوازي
+        final results = await Future.wait(
+          idsToFetch.map((id) async {
+            final doc = await _firestore
+                .collection('engineering_fields')
+                .doc(id)
+                .get();
+            if (doc.exists) {
+              try {
+                return MapEntry(id, _parseFieldData(id, doc.data()!));
+              } catch (e) {
+                debugPrint('⚠️ Error parsing field $id: $e');
+              }
+            }
+            return null;
+          }),
         );
-        if (allValid) {
-          debugPrint('📦 Loaded ${cachedFields.length} fields from cache');
-          return cachedFields;
+        for (final entry in results.whereType<MapEntry<String, FieldModel>>()) {
+          freshFields[entry.key] = entry.value;
+        }
+      } else {
+        // Cache فارغ — جلب الكل
+        final snapshot = await _firestore
+            .collection('engineering_fields')
+            .get();
+        for (var doc in snapshot.docs) {
+          try {
+            freshFields[doc.id] = _parseFieldData(doc.id, doc.data());
+          } catch (e) {
+            debugPrint('⚠️ Error parsing field ${doc.id}: $e');
+          }
         }
       }
 
-      // ── جلب من Firestore ──────────────────────────────────────────────────
-      debugPrint('☁️ Fetching all fields from Firestore...');
-      final snapshot = await _firestore
-          .collection('engineering_fields')
-          .get();
-
-      final Map<String, FieldModel> fields = {};
-
-      for (var doc in snapshot.docs) {
-        try {
-          final fieldModel = _parseFieldData(doc.id, doc.data());
-          fields[doc.id] = fieldModel;
-        } catch (e) {
-          debugPrint('⚠️ Error parsing field ${doc.id}: $e');
-        }
-      }
-
-      // ── حفظ جميع المجالات في Cache بشكل متوازٍ ───────────────────────────
+      // حفظ الجديدة في Cache
       await Future.wait(
-        fields.entries.map((e) => _cacheField(e.key, e.value)),
+        freshFields.entries.map((e) => _cacheField(e.key, e.value)),
       );
 
-      debugPrint('✅ Fetched ${fields.length} fields');
-      return fields;
+      // دمج الصالحة من Cache مع الجديدة من Firestore
+      final result = {...cachedFields, ...freshFields};
+      debugPrint('✅ Fetched ${freshFields.length} fields, total: ${result.length}');
+      return result;
     } catch (e) {
       debugPrint('❌ Error fetching all fields: $e');
       return _getAllCachedFields();
@@ -245,9 +274,13 @@ class FirebaseService {
   /// إيقاف الاستماع لمجال
   void _stopWatchingField(String fieldId) {
     debugPrint('👁️‍🗨️ Stopped watching field: $fieldId');
-    
+
     _firestoreSubscriptions[fieldId]?.cancel();
     _firestoreSubscriptions.remove(fieldId);
+
+    // إغلاق الـ StreamController وإزالته لمنع تراكم الموارد
+    _fieldStreamControllers[fieldId]?.close();
+    _fieldStreamControllers.remove(fieldId);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -578,6 +611,9 @@ class FirebaseService {
       await controller.close();
     }
     _fieldStreamControllers.clear();
+
+    // إعادة تعيين حالة التهيئة حتى يمكن إعادة initialize() بأمان
+    _isInitialized = false;
 
     debugPrint('🔌 FirebaseService disposed');
   }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'semester_controller.dart';
 import '../models/study_session_model.dart';
 import '../models/subject_performance_model.dart';
+import '../models/subject_schedule_entry_model.dart';
 import '../repositories/attendance_repository.dart';
 import '../repositories/schedule_repository.dart';
 import '../services/study_plan_service.dart';
@@ -28,12 +29,8 @@ class ScheduleController extends ChangeNotifier {
   final SemesterController _semesterController;
   final String Function() _getUserId;
 
-  // [FIX] callback يُستدعى بعد حفظ الجدول أو توليد خطة المذاكرة —
-  // يُسجَّل من main.dart بعد إنشاء TaskSyncService لتجنب circular dependency.
-  // الهدف: إخبار TaskController بإعادة sync المهام عند تغيّر البيانات،
-  // لأن taskController.init() يُستدعى مرة واحدة فقط عند تسجيل الدخول
-  // وقد يكون الجدول/الخطة فارغَين في تلك اللحظة.
   Future<void> Function()? onScheduleChanged;
+  Future<void> Function()? onStudyPlanMissing;
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -64,58 +61,59 @@ class ScheduleController extends ChangeNotifier {
 
   Future<void> init() async {
     if (_initialized) return;
-    _initialized = true;
 
     await _cancelSubscriptions();
-    await _autoSkipMissedSessions();
 
     _isLoading = true;
     _error = null;
-
+    notifyListeners();
     try {
       final results = await Future.wait([
         _scheduleRepo.loadSchedule(),
         _scheduleRepo.getAllPerformances(),
         _attendanceRepo.getSessionsByDate(DateTime.now()),
+        _attendanceRepo.getWeekSessions(),
       ]);
 
       _schedule      = results[0] as List<SubjectScheduleEntry>;
       _performances  = results[1] as List<SubjectPerformance>;
       _todaySessions = results[2] as List<StudySession>;
+      _weekSessions  = results[3] as List<StudySession>;
+
+      _initialized = true;
+
+      _checkStudyPlanReminder();
+      await _autoSkipMissedSessions();
+
+      // ── Streams تُفتح فقط بعد نجاح التحميل ──────────────────────────────
+      _scheduleSub = _scheduleRepo.watchSchedule().listen(
+        (entries) { _schedule = entries; notifyListeners(); },
+        onError: (Object e) { _error = e.toString(); notifyListeners(); },
+      );
+
+      _performancesSub = _scheduleRepo.watchAllPerformances().listen(
+        (perfs) { _performances = perfs; notifyListeners(); },
+        onError: (Object e) { _error = e.toString(); notifyListeners(); },
+      );
+
+      _todaySessionsSub = _attendanceRepo.watchTodaySessions().listen(
+        (sessions) { _todaySessions = sessions; notifyListeners(); },
+        onError: (Object e) { _error = e.toString(); notifyListeners(); },
+      );
+
+      _weekSessionsSub = _attendanceRepo.watchWeekSessions().listen(
+        (sessions) { _weekSessions = sessions; notifyListeners(); },
+        onError: (Object e) { _error = e.toString(); notifyListeners(); },
+      );
+
     } catch (e) {
       _error = e.toString();
-      _initialized = false;
+      debugPrint('[ScheduleController] init error: $e');
+      // _initialized يبقى false — يمكن إعادة استدعاء init()
+    } finally {
       _isLoading = false;
       notifyListeners();
-      return;
-    } finally {
-      if (_initialized) {
-        _isLoading = false;
-        notifyListeners();
-      }
     }
-
-    // ── streams حية ──────────────────────────────────────────────────────────
-
-    _scheduleSub = _scheduleRepo.watchSchedule().listen(
-      (entries) { _schedule = entries; notifyListeners(); },
-      onError: (Object e) { _error = e.toString(); notifyListeners(); },
-    );
-
-    _performancesSub = _scheduleRepo.watchAllPerformances().listen(
-      (perfs) { _performances = perfs; notifyListeners(); },
-      onError: (Object e) { _error = e.toString(); notifyListeners(); },
-    );
-
-    _todaySessionsSub = _attendanceRepo.watchTodaySessions().listen(
-      (sessions) { _todaySessions = sessions; notifyListeners(); },
-      onError: (Object e) { _error = e.toString(); notifyListeners(); },
-    );
-
-    _weekSessionsSub = _attendanceRepo.watchWeekSessions().listen(
-      (sessions) { _weekSessions = sessions; notifyListeners(); },
-      onError: (Object e) { _error = e.toString(); notifyListeners(); },
-    );
   }
 
   Future<void> reset() async {
@@ -132,14 +130,71 @@ class ScheduleController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void markUninitialized() {
+    _initialized = false;
+    // لا نمسح _performances — تبقى متاحة حتى يُعاد تحميلها
+  }
+
+  void _checkStudyPlanReminder() {
+    // نتحقق فقط في السبت والأحد — بداية الأسبوع
+    final weekday = DateTime.now().weekday;
+    final isStartOfWeek = weekday == 6 || weekday == 7; // السبت أو الأحد
+    if (!isStartOfWeek) return;
+
+    // إذا لا توجد جلسات لهذا الأسبوع أصلاً → خطة لم تُولَّد
+    if (_weekSessions.isEmpty) {
+      onScheduleChanged?.call().ignore();
+      onStudyPlanMissing?.call().ignore();
+    }
+  }
+
   Future<void> _autoSkipMissedSessions() async {
     final now = DateTime.now();
-    final missed = _weekSessions.where((s) =>
-        s.status == SessionStatus.planned &&
-        s.scheduledDate.isBefore(DateTime(now.year, now.month, now.day))).toList();
+    final today = DateTime(now.year, now.month, now.day);
+ 
+    final missed = _weekSessions.where((s) {
+      if (s.status != SessionStatus.planned) return false;
+ 
+      final sessionDay = DateTime(
+        s.scheduledDate.year,
+        s.scheduledDate.month,
+        s.scheduledDate.day,
+      );
 
+      // أيام سابقة — دائماً فائتة
+      if (sessionDay.isBefore(today)) return true;
+
+      if (sessionDay.isAtSameMomentAs(today)) {
+        // نحلل وقت نهاية الجلسة من timeSlot
+        final parts = s.timeSlot.split('-');
+        if (parts.length >= 2) {
+          final endParts = parts[1].trim().split(':');
+          if (endParts.isNotEmpty) {
+            final endHour   = int.tryParse(endParts[0]) ?? 23;
+            final endMinute = endParts.length > 1
+                ? int.tryParse(endParts[1]) ?? 59
+                : 0;
+            final sessionEnd = DateTime(
+              now.year, now.month, now.day,
+              endHour, endMinute,
+            );
+            // إضافة هامش 5 دقائق قبل اعتبارها فائتة
+            return now.isAfter(
+              sessionEnd.add(const Duration(minutes: 5)),
+            );
+          }
+        }
+      }
+ 
+      return false;
+    }).toList();
+ 
     for (final s in missed) {
       await _attendanceRepo.updateSessionStatus(s.id, SessionStatus.skipped);
+    }
+ 
+    if (missed.isNotEmpty) {
+      debugPrint('[ScheduleController] Auto-skipped ${missed.length} missed sessions');
     }
   }
 
@@ -327,44 +382,43 @@ class ScheduleController extends ChangeNotifier {
     }
   }
 
-  Future<void> generateAndSavePlan({
+    Future<void> generateAndSavePlan({
     Map<String, dynamic>? userPreferences,
+    Set<String>? preserveSessionIds,
   }) async {
     if (_schedule.isEmpty) {
       _error = 'لا يمكن توليد الخطة: الجدول الدراسي فارغ';
       notifyListeners();
       return;
     }
-
+ 
     _setLoading(true);
     try {
       final userId = _semesterController.activeSemester?.userId.isNotEmpty == true
           ? _semesterController.activeSemester!.userId
           : _getUserId();
+ 
+      final preservedSessions = preserveSessionIds != null
+        ? _weekSessions
+            .where((s) => preserveSessionIds.contains(s.id))
+            .toList()
+        : <StudySession>[];
 
-      // [FIX] تخطي الجلسات الفائتة من الأسبوع الحالي قبل المسح
-      // حتى تُخصم نقاطها ولا تُفقد بصمت عند clearWeekSessions
-      final now = DateTime.now();
-      final missedSessions = _weekSessions.where((s) =>
-          s.status == SessionStatus.planned &&
-          s.scheduledDate.isBefore(DateTime(now.year, now.month, now.day))).toList();
-
-      for (final s in missedSessions) {
-        await _attendanceRepo.updateSessionStatus(
-          s.id,
-          SessionStatus.skipped,
-        );
+    final sessions = await _planService.generateWeeklyPlan(
+      schedule:           _schedule,
+      performances:       _performances,
+      semester:           _semesterController.activeSemester,
+      userId:             userId,
+      userPreferences:    userPreferences,
+      preservedSessions:  preservedSessions,   // [FIX] جديد
+    );
+ 
+      if (preserveSessionIds != null && preserveSessionIds.isNotEmpty) {
+        await _attendanceRepo.clearWeekSessionsExcept(preserveSessionIds);
+      } else {
+        await _attendanceRepo.clearWeekSessions();
       }
-
-      final sessions = await _planService.generateWeeklyPlan(
-        schedule:        _schedule,
-        performances:    _performances,
-        semester:        _semesterController.activeSemester,
-        userId:          userId,
-        userPreferences: userPreferences,
-      );
-
-      await _attendanceRepo.clearWeekSessions();
+ 
       await _attendanceRepo.saveSessions(sessions);
       _error = null;
       onScheduleChanged?.call().ignore();

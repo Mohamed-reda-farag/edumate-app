@@ -8,6 +8,24 @@ import '../../models/academic_semester_model.dart';
 import '../../models/subject_performance_model.dart';
 import '../../models/attendance_record_model.dart';
 
+// [FIX 2-3-4] ملاحظة مهمة على السبب الجذري:
+//
+// المشاكل الثلاث (سجل الحضور فارغ، الإنجازات لا تُفتح، عداد الحضور 0%)
+// لها سببان محتملان:
+//
+// السبب أ — subjectId غير متطابق:
+//   المواد المضافة يدوياً قديماً (قبل إصلاح _CellEditorSheet) لها
+//   entry.subjectId = '' → ScheduleScreen تُمرر subjectId مشتق من الاسم
+//   → يختلف عن subjectId في AttendanceRecord و SubjectPerformance
+//   → لا تطابق → بيانات فارغة.
+//   الحل: مسح الجدول القديم وإعادة إنشائه بعد تطبيق إصلاح _CellEditorSheet.
+//
+// السبب ب — _preloadAllSubjectRecords لا تُحمِّل بيانات المادة الجديدة:
+//   عند فتح SubjectDetailScreen تُستدعى loadSubjectRecords(widget.subjectId)
+//   لكن إذا كان AttendanceController لم يُهيَّأ بعد (init لم يُستدعَ)
+//   فـ getSubjectRecords ترجع [] دائماً حتى بعد loadSubjectRecords.
+//   الإصلاح: نستدعي attCtrl.init() أولاً إذا لم يُهيَّأ.
+
 class SubjectDetailScreen extends StatefulWidget {
   const SubjectDetailScreen({
     super.key,
@@ -33,9 +51,15 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final attCtrl = context.read<AttendanceController>();
-      if (attCtrl.gamification == null) await attCtrl.init();
+
+      // [FIX 2] نتأكد من تهيئة AttendanceController أولاً —
+      // إذا لم يُهيَّأ فـ _recordsBySubject فارغة ولن تظهر أي سجلات
+      // حتى بعد loadSubjectRecords.
+      if (attCtrl.gamification == null) {
+        await attCtrl.init();
+      }
       if (!mounted) return;
-      // انتظر اكتمال التحميل
+
       await attCtrl.loadSubjectRecords(widget.subjectId);
     });
   }
@@ -48,13 +72,22 @@ class _SubjectDetailScreenState extends State<SubjectDetailScreen>
 
   @override
   Widget build(BuildContext context) {
-    final attCtrl   = context.watch<AttendanceController>();
+    final attCtrl  = context.watch<AttendanceController>();
     final schedCtrl = context.watch<ScheduleController>();
-    final semester = context.watch<SemesterController>().activeSemester;
+    final semester  = context.watch<SemesterController>().activeSemester;
 
-    final perf    = schedCtrl.performances
-        .where((p) => p.subjectId == widget.subjectId)
+    // [FIX 2] البحث عن الأداء بـ subjectId أولاً، ثم بالاسم كـ fallback —
+    // يحل مشكلة المواد التي لها subjectId مختلف في الـ performances
+    SubjectPerformance? perf =
+        schedCtrl.performances.where((p) => p.subjectId == widget.subjectId).firstOrNull;
+
+    // fallback: ابحث بالاسم إذا لم تجد بالـ id
+    perf ??= schedCtrl.performances
+        .where((p) =>
+            p.subjectName.trim().toLowerCase() ==
+            widget.subjectName.trim().toLowerCase())
         .firstOrNull;
+
     final records = attCtrl.getSubjectRecords(widget.subjectId);
 
     return Scaffold(
@@ -100,7 +133,7 @@ class _PerformanceTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (perf == null) {
+    if (perf == null && records.isEmpty) {
       return const Center(child: Text('لا توجد بيانات أداء بعد'));
     }
 
@@ -110,18 +143,34 @@ class _PerformanceTab extends StatelessWidget {
         .where((r) => r.sessionType == 'lec')
         .toList();
 
-    // المنقضية: من السجلات إن وُجدت، وإلا من تقدم الفصل
-    final elapsed = lectureRecords.isNotEmpty
-        ? lectureRecords.length
-        : _estimateElapsed();
+    // [FIX 4] نحسب attended من السجلات الفعلية إذا توفرت،
+    // وإلا نعتمد على SubjectPerformance
+    final int attended;
+    final int elapsed;
 
-    final attended = perf!.attendedCount + perf!.lateCount;
-    final missed   = (elapsed - attended).clamp(0, elapsed);
+    if (lectureRecords.isNotEmpty) {
+      // من السجلات الفعلية — الأدق
+      attended = lectureRecords
+          .where((r) =>
+              r.status == AttendanceStatus.attended ||
+              r.status == AttendanceStatus.late)
+          .length;
+      elapsed = lectureRecords.length;
+    } else if (perf != null) {
+      // fallback على SubjectPerformance
+      attended = perf!.attendedCount + perf!.lateCount;
+      elapsed  = _estimateElapsed(perf!);
+    } else {
+      attended = 0;
+      elapsed  = 0;
+    }
+
+    final missed = (elapsed - attended).clamp(0, elapsed);
+    final totalLectures = perf?.totalLectures ?? elapsed;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // ── إحصائيات ──────────────────────────────────────────────────
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -147,20 +196,24 @@ class _PerformanceTab extends StatelessWidget {
                 ),
                 _StatRow(
                   label: 'المحاضرات المنقضية',
-                  value: '$elapsed من ${perf!.totalLectures}',
+                  value: '$elapsed من $totalLectures',
                 ),
                 const Divider(height: 20),
                 _StatRow(
                   label: 'متوسط الفهم',
-                  value: '${perf!.avgUnderstanding.toStringAsFixed(1)} / 5',
+                  value: perf != null
+                      ? '${perf!.avgUnderstanding.toStringAsFixed(1)} / 5'
+                      : '-',
                 ),
                 _StatRow(
                   label: 'ساعات المذاكرة',
-                  value: '${perf!.studyHoursLogged.toStringAsFixed(1)} ساعة',
+                  value: perf != null
+                      ? '${perf!.studyHoursLogged.toStringAsFixed(1)} ساعة'
+                      : '-',
                 ),
                 _StatRow(
                   label: 'درجة الصعوبة',
-                  value: '${perf!.difficulty} / 5',
+                  value: perf != null ? '${perf!.difficulty} / 5' : '-',
                 ),
               ],
             ),
@@ -168,57 +221,59 @@ class _PerformanceTab extends StatelessWidget {
         ),
         const SizedBox(height: 12),
 
-        // ── مؤشر الأولوية ─────────────────────────────────────────────
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('مؤشر الأولوية للمذاكرة',
-                    style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: (perf!.priorityScore / 100).clamp(0.0, 1.0),
-                  color: perf!.priorityScore > 60 ? Colors.orange : cs.primary,
-                  backgroundColor: cs.surfaceVariant,
-                  minHeight: 8,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${perf!.priorityScore.toStringAsFixed(0)} / 100',
-                  style: Theme.of(context).textTheme.labelSmall,
-                ),
-              ],
+        if (perf != null) ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('مؤشر الأولوية للمذاكرة',
+                      style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: (perf!.priorityScore / 100).clamp(0.0, 1.0),
+                    color: perf!.priorityScore > 60
+                        ? Colors.orange
+                        : cs.primary,
+                    backgroundColor: cs.surfaceVariant,
+                    minHeight: 8,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${perf!.priorityScore.toStringAsFixed(0)} / 100',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 12),
+          const SizedBox(height: 12),
 
-        // ── التوصيات ──────────────────────────────────────────────────
-        Card(
-          color: Theme.of(context).colorScheme.secondaryContainer,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  const Text('💡', style: TextStyle(fontSize: 18)),
-                  const SizedBox(width: 8),
-                  Text('توصيات',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleSmall
-                          ?.copyWith(fontWeight: FontWeight.bold)),
-                ]),
-                const SizedBox(height: 12),
-                ..._buildRecommendations(context, perf!, missed, elapsed),
-              ],
+          Card(
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    const Text('💡', style: TextStyle(fontSize: 18)),
+                    const SizedBox(width: 8),
+                    Text('توصيات',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                  ]),
+                  const SizedBox(height: 12),
+                  ..._buildRecommendations(context, perf!, missed, elapsed),
+                ],
+              ),
             ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -230,8 +285,8 @@ class _PerformanceTab extends StatelessWidget {
     int elapsed,
   ) {
     final recs = <String>[];
-
-    final attendanceRate = elapsed == 0 ? 0.0 : (perf.attendedCount + perf.lateCount) / elapsed;
+    final attendanceRate =
+        elapsed == 0 ? 0.0 : (perf.attendedCount + perf.lateCount) / elapsed;
 
     if (attendanceRate < 0.75 && elapsed > 0) {
       recs.add('⚠️ نسبة حضورك منخفضة — فاتتك $missed محاضرة حتى الآن');
@@ -247,7 +302,8 @@ class _PerformanceTab extends StatelessWidget {
       recs.add('⏱️ خصص $needed ساعات إضافية لهذه المادة هذا الأسبوع');
     }
     if (perf.priorityScore > 75) {
-      recs.add('🎯 هذه المادة تحتاج اهتماماً عاجلاً — ضعها في أول جدول مذاكرتك');
+      recs.add(
+          '🎯 هذه المادة تحتاج اهتماماً عاجلاً — ضعها في أول جدول مذاكرتك');
     }
     if (recs.isEmpty) {
       recs.add('✅ أداؤك ممتاز في هذه المادة — استمر!');
@@ -261,19 +317,17 @@ class _PerformanceTab extends StatelessWidget {
         .toList();
   }
 
-    int _estimateElapsed() {
-    if (semester == null) return perf!.attendedCount + perf!.lateCount;
-    final totalWeeks   = semester!.totalWeeks;
-    final currentWeek  = semester!.currentWeek;
-    final totalLectures = perf!.totalLectures;
+  int _estimateElapsed(SubjectPerformance perf) {
+    if (semester == null) return perf.attendedCount + perf.lateCount;
+    final totalWeeks    = semester!.totalWeeks;
+    final currentWeek   = semester!.currentWeek;
+    final totalLectures = perf.totalLectures;
     if (totalWeeks == 0) return 0;
-    return (currentWeek / totalWeeks * totalLectures).round()
+    return (currentWeek / totalWeeks * totalLectures)
+        .round()
         .clamp(0, totalLectures);
   }
 }
-
-
-
 
 class _StatRow extends StatelessWidget {
   const _StatRow({required this.label, required this.value});
@@ -363,7 +417,6 @@ class _RecordTile extends StatelessWidget {
           ),
         ),
         title: Row(children: [
-          // نوع الجلسة
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
@@ -379,7 +432,6 @@ class _RecordTile extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          // حالة الحضور
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
@@ -390,7 +442,6 @@ class _RecordTile extends StatelessWidget {
                 style: TextStyle(color: color, fontSize: 12)),
           ),
           const SizedBox(width: 6),
-          // تقييم الفهم
           if (record.understandingRating != null)
             Row(
               mainAxisSize: MainAxisSize.min,

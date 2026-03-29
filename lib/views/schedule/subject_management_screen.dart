@@ -130,7 +130,8 @@ class SubjectManagementScreen extends StatelessWidget {
             builder: (_) => _AttendanceInitDialog(
               subjectName: newSubject.name,
               totalLectures: semester.totalLecturesPerSubject,
-              currentWeek: semester.currentWeek,
+              weeksElapsed: (semester.currentWeek - 1).clamp(0, semester.totalWeeks),
+              isSummer: semester.type.isSummer,
             ),
           ) ??
           0;
@@ -255,12 +256,15 @@ class SubjectManagementScreen extends StatelessWidget {
       final schedCtrl = context.read<ScheduleController>();
       final attCtrl   = context.read<AttendanceController>();
 
-      // 1. حذف المادة من الفصل — removeSubject يحذف المادة فقط
+      // نجلب الفصل الحالي من الـ controller مباشرةً بدلاً من الـ parameter
+      // لتجنب استخدام بيانات قديمة بسبب تغييرات الـ Stream
+      final currentSemester = semCtrl.activeSemester ?? semester;
+
+      // 1. حذف المادة من الفصل
       await semCtrl.removeSubject(subject.id);
 
-      // 2. حذف امتحانات هذه المادة صراحةً
-      //    (removeSubject لا يحذفها — هي في قائمة منفصلة)
-      final examsToDelete = semester.exams
+      // 2. حذف امتحانات هذه المادة
+      final examsToDelete = currentSemester.exams
           .where((e) => e.subjectId == subject.id)
           .toList();
       for (final exam in examsToDelete) {
@@ -290,11 +294,21 @@ class SubjectManagementScreen extends StatelessWidget {
         );
       }
     } catch (e) {
+      debugPrint('[SubjectManagement] _deleteSubjectCascade partial failure: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('حدث خطأ أثناء الحذف: $e'),
+            content: const Text(
+              'حدث خطأ أثناء الحذف — بعض البيانات قد لا تزال موجودة.\n'
+              'أعد المحاولة أو أغلق التطبيق وافتحه مجدداً.',
+            ),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'حسناً',
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
           ),
         );
       }
@@ -701,30 +715,40 @@ class _AttendanceInitDialog extends StatefulWidget {
   const _AttendanceInitDialog({
     required this.subjectName,
     required this.totalLectures,
-    required this.currentWeek,
+    required this.weeksElapsed,   // [FIX] بدلاً من currentWeek
+    required this.isSummer,       // [FIX] جديد
   });
+ 
   final String subjectName;
   final int totalLectures;
-  final int currentWeek;
-
+  final int weeksElapsed;         // [FIX] الأسابيع المنقضية (currentWeek - 1)
+  final bool isSummer;            // [FIX]
+ 
   @override
   State<_AttendanceInitDialog> createState() => _AttendanceInitDialogState();
 }
-
+ 
 class _AttendanceInitDialogState extends State<_AttendanceInitDialog> {
   late int _attended;
-
+ 
+  // [FIX] نفس منطق semester_setup_screen
+  int get _maxAttendable {
+    final lecturesPerWeek = widget.isSummer ? 2 : 1;
+    return (widget.weeksElapsed * lecturesPerWeek)
+        .clamp(0, widget.totalLectures);
+  }
+ 
   @override
   void initState() {
     super.initState();
-    // قيمة افتراضية معقولة بناءً على الأسابيع المنقضية
-    _attended = ((widget.currentWeek - 1) / 16 * widget.totalLectures)
-        .round()
-        .clamp(0, widget.totalLectures);
+    // [FIX] القيمة الافتراضية مقيَّدة بـ _maxAttendable
+    _attended = (_maxAttendable * 0.8).round().clamp(0, _maxAttendable);
   }
-
+ 
   @override
   Widget build(BuildContext context) {
+    final max = _maxAttendable;
+ 
     return AlertDialog(
       title: Text('حضور "${widget.subjectName}"'),
       content: Column(
@@ -734,21 +758,39 @@ class _AttendanceInitDialogState extends State<_AttendanceInitDialog> {
             'كم محاضرة حضرت حتى الآن؟',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
+          // [FIX] نوضح الحد الأقصى المنطقي
+          if (max < widget.totalLectures) ...[
+            const SizedBox(height: 4),
+            Text(
+              'الحد الأقصى الممكن: $max من ${widget.totalLectures} '
+              '(${widget.weeksElapsed} أسبوع'
+              '${widget.isSummer ? " × 2 محاضرة" : ""})',
+              style: const TextStyle(
+                  color: Colors.blue,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500),
+            ),
+          ],
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('$_attended / ${widget.totalLectures}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 16)),
+              Text(
+                '$_attended / $max',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 16),
+              ),
             ],
           ),
           Slider(
             min: 0,
-            max: widget.totalLectures.toDouble(),
-            divisions: widget.totalLectures,
+            // [FIX] الحد الأقصى = maxAttendable
+            max: max.toDouble(),
+            divisions: max > 0 ? max : 1,
             value: _attended.toDouble(),
-            onChanged: (v) => setState(() => _attended = v.toInt()),
+            onChanged: max > 0
+                ? (v) => setState(() => _attended = v.toInt())
+                : null,
           ),
         ],
       ),

@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_messaging/firebase_messaging.dart' hide NotificationSettings;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import 'notification_service.dart';
 import '../models/notification_history_model.dart';
+import '../models/notification_settings_model.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Background FCM Handler — top-level function (مطلوب لـ Firebase)
@@ -34,6 +35,7 @@ class FcmService {
   StreamSubscription<String>?       _tokenRefreshSub;
   StreamSubscription<RemoteMessage>? _onMessageSub;
   StreamSubscription<RemoteMessage>? _onMessageOpenedAppSub;
+  StreamSubscription<NotificationSettings>? _settingsSub;
 
   // [FIX #4] Callback لتسجيل الإشعارات الواردة في الـ history
   // يُضبط من NotificationController عند initialize()
@@ -99,6 +101,8 @@ class FcmService {
       // يمكن إضافة navigation هنا
     });
 
+    await _settingsSub?.cancel();
+
     // التحقق من إشعار أُرسل بينما كان التطبيق مغلقاً
     final initialMessage = await _messaging.getInitialMessage();
     if (initialMessage != null) {
@@ -124,11 +128,12 @@ class FcmService {
     await _onMessageOpenedAppSub?.cancel();
     _onMessageOpenedAppSub = null;
 
-    // [FIX #1] + [FIX #2] مسح كلا الـ flags معاً
+    await _settingsSub?.cancel();
+    _settingsSub = null;
+
     _initialized = false;
     _currentUserId = null;
 
-    // [FIX #4] مسح الـ callback عند logout
     onMessageReceivedForHistory = null;
 
     try {
@@ -161,12 +166,6 @@ class FcmService {
     }
   }
 
-  /// [FIX #4] يعالج الرسائل الواردة في الـ foreground.
-  ///
-  /// على Android، FCM يعرض notification messages تلقائياً في الـ system tray،
-  /// لكنها لا تُضاف للـ history. نعالج كلا النوعين هنا:
-  ///   - notification message: نسجّل في history فقط (النظام يعرضها)
-  ///   - data-only message: نعرض إشعاراً محلياً + نسجّل في history
   void _handleForegroundMessage(RemoteMessage message) {
     debugPrint('[FCM] Foreground message: ${message.notification?.title}');
 
@@ -182,7 +181,6 @@ class FcmService {
       orElse: () => NotificationCategory.tasks,
     );
 
-    // [FIX #4] تسجيل في الـ history بغض النظر عن نوع الرسالة
     onMessageReceivedForHistory?.call(
       title: title,
       body: body,

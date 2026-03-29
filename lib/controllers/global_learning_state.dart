@@ -18,6 +18,15 @@ class GlobalLearningState extends ChangeNotifier {
   final FirebaseService _firebaseService = FirebaseService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  // Notification callback
+  Future<void> Function({
+    required String courseId,
+    required String courseTitle,
+    required String skillName,
+  })? onCourseAccessedCallback;
+
+  Future<void> Function()? onCourseProgressChangedCallback;
+
   String? _currentUserId;
 
   // Streams subscriptions
@@ -361,22 +370,41 @@ class GlobalLearningState extends ChangeNotifier {
     }
     _fieldProgressSubscriptions.clear();
 
+    for (var sub in _fieldDataSubscriptions.values) {
+      await sub.cancel();
+    }
+    _fieldDataSubscriptions.clear();
+
     _userProfile = null;
     _currentUserId = null;
     _lastError = null;
     _userProfileError = null;
+
+    // [FIX] مسح _allFields عند تسجيل الخروج —
+    // كان يبقى محملاً بمجالات المستخدم السابق، فإذا سجّل مستخدم
+    // ثانٍ دخوله يجد allFields.isNotEmpty == true فيُشغّل
+    // syncCourseTasks بمجالات خاطئة قبل اكتمال loadUserProfile.
+    _allFields.clear();
+
     notifyListeners();
     debugPrint('✅ User data cleared');
   }
 
   /// إنشاء بروفايل مستخدم جديد
+  /// [preferences] — التفضيلات الكاملة من الاستبيان (تشمل skillLevels).
+  /// تُمرَّر هنا لأن _userProfile لم يُعيَّن بعد عند استدعاء _initializeFieldProgress.
   Future<void> createUserProfile({
     required String userId,
     required String primaryFieldId,
     String? secondaryFieldId,
+    Map<String, dynamic> preferences = const {},
   }) async {
     try {
       final docRef = _firestore.collection('user_profiles').doc(userId);
+
+      // استخراج skillLevels من preferences لتمريرها لـ _initializeFieldProgress
+      final skillLevels =
+          preferences['skillLevels'] as Map<String, dynamic>? ?? {};
 
       // تحقق من وجود بروفايل سابق لتجنب مسح البيانات الموجودة
       final existingDoc = await docRef.get();
@@ -385,17 +413,26 @@ class GlobalLearningState extends ChangeNotifier {
         await docRef.update({
           'primaryFieldId': primaryFieldId,
           if (secondaryFieldId != null) 'secondaryFieldId': secondaryFieldId,
+          if (preferences.isNotEmpty) 'preferences': preferences,
         });
         // تهيئة التقدم للمجالات الجديدة فقط إن لم تكن موجودة
         final data = existingDoc.data() as Map<String, dynamic>;
         final existingProgress =
             (data['fieldProgress'] as Map?)?.keys.toSet() ?? {};
         if (!existingProgress.contains(primaryFieldId)) {
-          await _initializeFieldProgress(userId, primaryFieldId);
+          await _initializeFieldProgress(
+            userId,
+            primaryFieldId,
+            skillLevels: skillLevels,
+          );
         }
         if (secondaryFieldId != null &&
             !existingProgress.contains(secondaryFieldId)) {
-          await _initializeFieldProgress(userId, secondaryFieldId);
+          await _initializeFieldProgress(
+            userId,
+            secondaryFieldId,
+            skillLevels: skillLevels,
+          );
         }
         // إعادة تحميل البروفايل
         await loadUserProfile(userId);
@@ -408,21 +445,31 @@ class GlobalLearningState extends ChangeNotifier {
         primaryFieldId: primaryFieldId,
         secondaryFieldId: secondaryFieldId,
         createdAt: DateTime.now(),
-        preferences: {},
+        preferences: Map<String, dynamic>.from(preferences),
         fieldProgress: {},
       );
 
       // حفظ في Firestore
       await docRef.set(profile.toJson());
 
-      // تهيئة التقدم للمجالات
-      await _initializeFieldProgress(userId, primaryFieldId);
-      if (secondaryFieldId != null) {
-        await _initializeFieldProgress(userId, secondaryFieldId);
-      }
-
+      // تعيين _userProfile قبل _initializeFieldProgress
+      // حتى تجد الـ stream snapshot جاهزاً عند وصوله
       _userProfile = profile;
       _currentUserId = userId;
+
+      // تهيئة التقدم للمجالات مع تمرير skillLevels صراحةً
+      await _initializeFieldProgress(
+        userId,
+        primaryFieldId,
+        skillLevels: skillLevels,
+      );
+      if (secondaryFieldId != null) {
+        await _initializeFieldProgress(
+          userId,
+          secondaryFieldId,
+          skillLevels: skillLevels,
+        );
+      }
 
       notifyListeners();
       debugPrint('✅ User profile created successfully');
@@ -434,17 +481,20 @@ class GlobalLearningState extends ChangeNotifier {
   }
 
   /// تهيئة التقدم لمجال معين
-  Future<void> _initializeFieldProgress(String userId, String fieldId) async {
+  /// [skillLevels] — مستويات المهارات المختارة من الاستبيان أو شاشة التعديل.
+  /// يُمرَّر صراحةً بدلاً من قراءته من _userProfile لأن هذه الدالة قد تُستدعى
+  /// قبل وصول أول snapshot من Firestore (وقبل تعيين _userProfile).
+  Future<void> _initializeFieldProgress(
+    String userId,
+    String fieldId, {
+    Map<String, dynamic> skillLevels = const {},
+  }) async {
     try {
       // جلب بيانات المجال
       final field = await _firebaseService.getField(fieldId);
       if (field == null) return;
 
       final Map<String, SkillProgress> skillsProgress = {};
-
-      // قراءة مستويات المهارات من الاستبيان
-      final skillLevels = _userProfile?.preferences['skillLevels']
-          as Map<String, dynamic>? ?? {};
 
       for (final entry in field.skills.entries) {
         final userSkillLevel =
@@ -556,8 +606,20 @@ class GlobalLearningState extends ChangeNotifier {
       debugPrint(
         '✅ Course ${existingCourse != null ? "accessed" : "started"}: $courseId',
       );
+
+      // جدولة إشعار "غياب عن الكورس" بعد 3 أيام
+      final courseData = getCourseData(fieldId, skillId, courseId);
+      final skillData  = getSkillData(fieldId, skillId);
+      if (courseData != null && skillData != null) {
+        onCourseAccessedCallback?.call(
+          courseId:    courseId,
+          courseTitle: courseData.title,
+          skillName:   skillData.name,
+        );
+      }
     } catch (e) {
       debugPrint('❌ Error starting/accessing course: $e');
+      onCourseProgressChangedCallback?.call().ignore();
       _lastError = e.toString();
     }
   }
@@ -640,46 +702,68 @@ class GlobalLearningState extends ChangeNotifier {
   }) async {
     final fieldProgress = _userProfile?.fieldProgress[fieldId];
     if (fieldProgress == null) return;
-
+ 
     final skillProgress = fieldProgress.skillsProgress[skillId];
     if (skillProgress == null) return;
-
+ 
     final courses = skillProgress.coursesProgress.values.toList();
-    if (courses.isEmpty) return;
-
-    // ── المنطق الجديد ───────────────────────────────────────────────
-    // كورس واحد مكتمل = 80% مباشرة (بانتظار الاختبار)
-    // الاختبار هو من يحدد إذا تتجاوز 80% أم تنزل
-      final hasAnyCompleted = courses.any((c) => c.isCompleted);
-      final initialProgress = skillProgress.initialProgress;
-      final effectiveRatio  = skillProgress.effectiveRatio;
-
-      int newProgressPercentage;
-      if (hasAnyCompleted) {
-        // كورس مكتمل → 80% دائماً بغض النظر عن نقطة البداية
-        newProgressPercentage = 80;
-      } else if (courses.isEmpty) {
-        // لا كورسات — يبقى على نقطة البداية (حالة الخبير)
-        newProgressPercentage = initialProgress;
-      } else {
-        // حساب تقدم الكورسات الجارية
-        final totalLessonProgress = courses.fold<double>(
-          0,
-          (total, c) => total + (c.totalLessons > 0
-              ? c.completedLessons.length / c.totalLessons
-              : 0),
-        );
-        final courseContribution =
-            (totalLessonProgress / courses.length) * 75;
-
-        // تقدم المهارة = نقطة البداية + مساهمة الكورس مضروبة في الـ effectiveRatio
-        // بحد أقصى 79% (قبل الاختبار) وبحد أدنى initialProgress
-        newProgressPercentage = (initialProgress +
-                courseContribution * effectiveRatio)
-            .round()
-            .clamp(initialProgress, 79);
-      }
-
+ 
+    if (courses.isEmpty) {
+      final newProgressPercentage = skillProgress.initialProgress;
+      final updatedSkillProgress = SkillProgress(
+        skillId: skillProgress.skillId,
+        fieldId: skillProgress.fieldId,
+        startedAt: skillProgress.startedAt,
+        currentLessonIndex: skillProgress.currentLessonIndex,
+        progressPercentage: newProgressPercentage,
+        coursesProgress: skillProgress.coursesProgress,
+        initialProgress: skillProgress.initialProgress,
+        effectiveRatio: skillProgress.effectiveRatio,
+        assessmentAttempts: skillProgress.assessmentAttempts,
+        lastAssessmentAt: skillProgress.lastAssessmentAt,
+        cheatingAttemptsCount: skillProgress.cheatingAttemptsCount,
+        lessonsMarkedToday: skillProgress.lessonsMarkedToday,
+        lastLessonDate: skillProgress.lastLessonDate,
+        dailyWarningSent: skillProgress.dailyWarningSent,
+        weeklyActiveDays: skillProgress.weeklyActiveDays,
+        currentWeekKey: skillProgress.currentWeekKey,
+        weeklyWarningSent: skillProgress.weeklyWarningSent,
+      );
+      fieldProgress.skillsProgress[skillId] = updatedSkillProgress;
+      await _updateFieldOverallProgress(fieldId, batch: batch);
+      return;
+    }
+ 
+    final hasAnyCompleted = courses.any((c) => c.isCompleted);
+    final initialProgress = skillProgress.initialProgress;
+    final effectiveRatio  = skillProgress.effectiveRatio;
+ 
+    int newProgressPercentage;
+    if (hasAnyCompleted) {
+      // كورس مكتمل → 80% دائماً بصرف النظر عن المستوى
+      newProgressPercentage = 80;
+    } else if (initialProgress >= 80) {
+      // خبير — الكورسات للمراجعة فقط، التقدم لا يتغير إلا بالاختبار.
+      // نُبقيه على initialProgress لتجنب clamp(80, 79) الخاطئ.
+      newProgressPercentage = initialProgress;
+    } else {
+      // مستويات أخرى (foundation / intermediate / advanced) —
+      // clamp آمن هنا لأن initialProgress < 80 دائماً.
+      final totalLessonProgress = courses.fold<double>(
+        0,
+        (total, c) => total + (c.totalLessons > 0
+            ? c.completedLessons.length / c.totalLessons
+            : 0),
+      );
+      final courseContribution =
+          (totalLessonProgress / courses.length) * 75;
+ 
+      newProgressPercentage = (initialProgress +
+              courseContribution * effectiveRatio)
+          .round()
+          .clamp(initialProgress, 79);
+    }
+ 
     final updatedSkillProgress = SkillProgress(
       skillId: skillProgress.skillId,
       fieldId: skillProgress.fieldId,
@@ -689,13 +773,22 @@ class GlobalLearningState extends ChangeNotifier {
       coursesProgress: skillProgress.coursesProgress,
       initialProgress: skillProgress.initialProgress,
       effectiveRatio: skillProgress.effectiveRatio,
+      assessmentAttempts: skillProgress.assessmentAttempts,
+      lastAssessmentAt: skillProgress.lastAssessmentAt,
+      cheatingAttemptsCount: skillProgress.cheatingAttemptsCount,
+      lessonsMarkedToday: skillProgress.lessonsMarkedToday,
+      lastLessonDate: skillProgress.lastLessonDate,
+      dailyWarningSent: skillProgress.dailyWarningSent,
+      weeklyActiveDays: skillProgress.weeklyActiveDays,
+      currentWeekKey: skillProgress.currentWeekKey,
+      weeklyWarningSent: skillProgress.weeklyWarningSent,
     );
-
+ 
     fieldProgress.skillsProgress[skillId] = updatedSkillProgress;
     await _updateFieldOverallProgress(fieldId, batch: batch);
-
+ 
     final docRef = _firestore.collection('user_profiles').doc(_currentUserId);
-
+ 
     if (batch != null) {
       batch.update(docRef, {
         'fieldProgress.$fieldId.skillsProgress.$skillId':
@@ -975,6 +1068,17 @@ class GlobalLearningState extends ChangeNotifier {
       assessmentAttempts: skillProgress.assessmentAttempts,
       lastAssessmentAt: skillProgress.lastAssessmentAt,
       cheatingAttemptsCount: skillProgress.cheatingAttemptsCount,
+      initialProgress: skillProgress.initialProgress,
+      effectiveRatio: skillProgress.effectiveRatio,
+      lessonsMarkedToday: skillProgress.lessonsMarkedToday,
+      lastLessonDate: skillProgress.lastLessonDate,
+      dailyWarningSent: skillProgress.dailyWarningSent,
+      weeklyActiveDays: skillProgress.weeklyActiveDays,
+      currentWeekKey: skillProgress.currentWeekKey,
+      weeklyWarningSent: skillProgress.weeklyWarningSent,
+      isAssessmentPassed: outcome == AssessmentOutcome.passed
+          ? true
+          : skillProgress.isAssessmentPassed, // لا تمسح النجاح السابق
     );
 
     fieldProgress!.skillsProgress[skillId] = updatedSkill;
@@ -992,6 +1096,8 @@ class GlobalLearningState extends ChangeNotifier {
           updatedSkill.lastAssessmentAt?.toIso8601String(),
       'fieldProgress.$fieldId.skillsProgress.$skillId.cheatingAttemptsCount':
           updatedSkill.cheatingAttemptsCount,
+      'fieldProgress.$fieldId.skillsProgress.$skillId.isAssessmentPassed':
+          updatedSkill.isAssessmentPassed,
     });
 
     debugPrint(
@@ -1288,7 +1394,9 @@ class GlobalLearningState extends ChangeNotifier {
           skillData.level,
           userLevel,
         );
-        bool isNotMastered = skillProgress.progressPercentage < 80;
+        // المهارة نشطة إذا لم يجتز الاختبار بعد — بصرف النظر عن نسبة التقدم.
+        // progressPercentage >= 80 بدون اختبار = "جاهز للاختبار" وليس "متعلم".
+        bool isNotMastered = !skillProgress.isAssessmentPassed;
 
         if (isLevelSuitable && isNotMastered) {
           activeSkills.add(skillProgress);
@@ -1297,16 +1405,10 @@ class GlobalLearningState extends ChangeNotifier {
     }
 
     // حساب fieldId للترتيب مرة واحدة قبل الـ sort
-    // مع حماية من الاستثناء إذا كانت selectedFields فارغة
-    final sortFieldId =
-        fieldId ?? (selectedFields.isNotEmpty ? selectedFields.first : null);
-
     activeSkills.sort((a, b) {
-      // كل مهارة تحمل fieldId الخاص بها — نستخدمه مباشرة إذا لم يكن هناك fieldId محدد
-      final fId = sortFieldId ?? a.fieldId;
-      SkillModel? skillA = getSkillData(fId, a.skillId);
-      // إذا كانت المهارة من مجال مختلف (multi-field) نستخدم fieldId الخاص بها
-      SkillModel? skillB = getSkillData(sortFieldId ?? b.fieldId, b.skillId);
+      // كل مهارة تستخدم fieldId الخاص بها لضمان الحصول على البيانات الصحيحة
+      final skillA = getSkillData(a.fieldId, a.skillId);
+      final skillB = getSkillData(b.fieldId, b.skillId);
 
       int importanceCompare = (skillB?.importance ?? 0).compareTo(
         skillA?.importance ?? 0,
@@ -1321,26 +1423,27 @@ class GlobalLearningState extends ChangeNotifier {
 
   List<CourseProgress> getActiveCourses({String? fieldId, String? skillId}) {
     if (_userProfile == null) return [];
-
+ 
     List<CourseProgress> activeCourses = [];
     List<String> fieldsToCheck = fieldId != null ? [fieldId] : selectedFields;
-
+ 
     for (String fId in fieldsToCheck) {
       UserFieldProgress? fieldProgress = _userProfile!.fieldProgress[fId];
       if (fieldProgress == null) continue;
-
+ 
       for (SkillProgress skillProgress in fieldProgress.skillsProgress.values) {
         if (skillId != null && skillProgress.skillId != skillId) continue;
-
+ 
         for (CourseProgress courseProgress
             in skillProgress.coursesProgress.values) {
-          if (!courseProgress.isCompleted) {
+          if (!courseProgress.isCompleted &&
+              courseProgress.totalLessons > 0) {
             activeCourses.add(courseProgress);
           }
         }
       }
     }
-
+ 
     activeCourses.sort((a, b) => b.lastAccessedAt.compareTo(a.lastAccessedAt));
     return activeCourses;
   }
@@ -1357,8 +1460,9 @@ class GlobalLearningState extends ChangeNotifier {
       if (fieldProgress == null) continue;
 
       for (SkillProgress skillProgress in fieldProgress.skillsProgress.values) {
-        // المهارة متعلمة إذا كانت النسبة >= 80%
-        if (skillProgress.progressPercentage >= 80) {
+        // المهارة متعلمة فقط إذا اجتاز المستخدم الاختبار بنجاح.
+        // progressPercentage >= 80 وحده لا يكفي — قد يكون خبيراً لم يختبر بعد.
+        if (skillProgress.isAssessmentPassed) {
           learnedSkills.add(skillProgress);
         }
       }
@@ -1583,6 +1687,7 @@ class GlobalLearningState extends ChangeNotifier {
       fieldId: courseProgress.fieldId,
       startedAt: courseProgress.startedAt,
       lastAccessedAt: DateTime.now(),
+      lastLessonUnlockedAt: DateTime.now(),
       currentLessonIndex: newCurrentIndex.clamp(0, courseProgress.totalLessons),
       totalLessons: courseProgress.totalLessons,
       completedLessons: newCompletedLessons,
@@ -1598,12 +1703,29 @@ class GlobalLearningState extends ChangeNotifier {
 
     // Optimistic update
     skillProgress.coursesProgress[courseId] = updatedProgress;
-    await _updateSkillProgress(fieldId, skillId);
     notifyListeners();
 
     try {
-      // دمج الـ 3 writes في batch واحد
-      final batch = _firestore.batch();
+      // ── تحديث عدادات النشاط اليومي والأسبوعي في الذاكرة أولاً ───────────
+      final todayKey  = _todayKey();
+      final weekKey   = _currentWeekKey();
+      final sp        = fieldProgress.skillsProgress[skillId]!;
+
+      final isNewDay  = sp.lastLessonDate != todayKey;
+      final isNewWeek = sp.currentWeekKey != weekKey;
+
+      if (isNewWeek) {
+        sp.weeklyActiveDays = 1;
+      } else if (isNewDay) {
+        sp.weeklyActiveDays++;
+      }
+      // نفس اليوم — لا تغيير على weeklyActiveDays
+
+      sp.lessonsMarkedToday = isNewDay ? 1 : sp.lessonsMarkedToday + 1;
+      sp.lastLessonDate     = todayKey;
+      sp.currentWeekKey     = weekKey;
+
+      final batch  = _firestore.batch();
       final docRef = _firestore
           .collection('user_profiles')
           .doc(_currentUserId);
@@ -1617,43 +1739,8 @@ class GlobalLearningState extends ChangeNotifier {
       // Write 2 & 3: skillProgress + overallProgress (تُضاف للـ batch داخلياً)
       await _updateSkillProgress(fieldId, skillId, batch: batch);
 
-      // تنفيذ الـ 3 writes دفعةً واحدة
-      await batch.commit();
-
-      // ── تحديث عدادات النشاط اليومي والأسبوعي ──────────────────────────────
-      final todayKey  = _todayKey();
-      final weekKey   = _currentWeekKey();
-      final sp = fieldProgress.skillsProgress[skillId]!;
-
-      // تحديث الأيام الأسبوعية إذا كان هذا أول درس اليوم
-      // ── تحديث عدادات النشاط ──────────────────────────────────────────────
-    final isNewDay  = sp.lastLessonDate != todayKey;
-    final isNewWeek = sp.currentWeekKey != weekKey;
-
-    if (isNewWeek) {
-      // أسبوع جديد — ابدأ من 1
-      sp.weeklyActiveDays = 1;
-    } else if (isNewDay) {
-      // نفس الأسبوع لكن يوم جديد
-      sp.weeklyActiveDays++;
-    }
-    // نفس اليوم — لا تغيير على weeklyActiveDays
-
-    sp.lessonsMarkedToday = isNewDay ? 1 : sp.lessonsMarkedToday + 1;
-    sp.lastLessonDate     = todayKey;
-    sp.currentWeekKey     = weekKey;
-
-      sp.lessonsMarkedToday = (sp.lastLessonDate == todayKey)
-          ? sp.lessonsMarkedToday + 1
-          : 1;
-      sp.lastLessonDate   = todayKey;
-      sp.currentWeekKey   = weekKey;
-
-      // حفظ العدادات في Firestore
-      await _firestore
-          .collection('user_profiles')
-          .doc(_currentUserId)
-          .update({
+      // Write 4: عدادات النشاط — في نفس الـ batch لضمان الاتساق
+      batch.update(docRef, {
         'fieldProgress.$fieldId.skillsProgress.$skillId.lessonsMarkedToday':
             sp.lessonsMarkedToday,
         'fieldProgress.$fieldId.skillsProgress.$skillId.lastLessonDate':
@@ -1664,7 +1751,11 @@ class GlobalLearningState extends ChangeNotifier {
             sp.currentWeekKey,
       });
 
+      // تنفيذ جميع الـ writes دفعةً واحدة
+      await batch.commit();
+
       debugPrint('✅ Lesson $lessonIndex marked as completed in $courseId');
+      onCourseProgressChangedCallback?.call().ignore();
     } catch (e) {
       debugPrint('❌ Error marking lesson as completed: $e');
       skillProgress.coursesProgress[courseId] = previousCourseProgress;
@@ -1853,7 +1944,12 @@ class GlobalLearningState extends ChangeNotifier {
     return skillLevelIndex <= userLevelIndex + 1;
   }
 
-  Future<void> addSecondaryField(String fieldId) async {
+  /// [skillLevels] — مستويات مهارات المجال الجديد يختارها المستخدم
+  /// من شاشة تحديد المستوى قبل الاستدعاء (في settings_screen).
+  Future<void> addSecondaryField(
+    String fieldId, {
+    Map<String, dynamic> skillLevels = const {},
+  }) async {
     if (_userProfile == null || _currentUserId == null) {
       throw Exception('لا يوجد مستخدم مسجل');
     }
@@ -1867,26 +1963,34 @@ class GlobalLearningState extends ChangeNotifier {
     }
 
     try {
-      // إنشاء field progress للمجال الجديد
-      final newFieldProgress = UserFieldProgress(
-        fieldId: fieldId,
-        currentLevel: 'foundation',
-        overallProgress: 0,
-        startedAt: DateTime.now(),
-        skillsProgress: {},
-      );
-
-      // تحديث البروفايل
+      // تحديث البروفايل بالمجال الجديد أولاً
       _userProfile!.secondaryFieldId = fieldId;
-      _userProfile!.fieldProgress[fieldId] = newFieldProgress;
 
-      // حفظ في Firebase
+      // دمج skillLevels الجديدة مع preferences الحالية
+      if (skillLevels.isNotEmpty) {
+        final currentSkillLevels =
+            Map<String, dynamic>.from(
+              _userProfile!.preferences['skillLevels']
+                  as Map<String, dynamic>? ?? {},
+            )..addAll(skillLevels);
+        _userProfile!.preferences['skillLevels'] = currentSkillLevels;
+      }
+
+      // حفظ secondaryFieldId وskillLevels في Firebase
       await _firestore.collection('user_profiles').doc(_currentUserId).update({
         'secondaryFieldId': fieldId,
-        'fieldProgress.$fieldId': newFieldProgress.toJson(),
+        if (skillLevels.isNotEmpty)
+          'preferences.skillLevels': _userProfile!.preferences['skillLevels'],
       });
 
-      // تحميل بيانات المجال
+      // تهيئة التقدم للمجال الجديد مع تمرير skillLevels صراحةً
+      await _initializeFieldProgress(
+        _currentUserId!,
+        fieldId,
+        skillLevels: skillLevels,
+      );
+
+      // تحميل بيانات المجال في الذاكرة
       await loadField(fieldId);
 
       notifyListeners();
@@ -1898,9 +2002,12 @@ class GlobalLearningState extends ChangeNotifier {
   }
 
   /// تغيير مجال (أساسي أو ثانوي)
+  /// [skillLevels] — مستويات مهارات المجال الجديد يختارها المستخدم
+  /// من شاشة تحديد المستوى قبل الاستدعاء (في settings_screen).
   Future<void> changeField({
     required bool isPrimary,
     required String newFieldId,
+    Map<String, dynamic> skillLevels = const {},
   }) async {
     if (_userProfile == null || _currentUserId == null) {
       throw Exception('لا يوجد مستخدم مسجل');
@@ -1925,21 +2032,22 @@ class GlobalLearningState extends ChangeNotifier {
     }
 
     try {
-      // حذف التقدم القديم
+      // حذف التقدم القديم من الذاكرة والـ cache
       if (oldFieldId != null) {
         _userProfile!.fieldProgress.remove(oldFieldId);
+        await _firebaseService.clearFieldCache(oldFieldId);
+        _allFields.remove(oldFieldId);
       }
 
-      // إنشاء field progress جديد
-      final newFieldProgress = UserFieldProgress(
-        fieldId: newFieldId,
-        currentLevel: 'foundation',
-        overallProgress: 0,
-        startedAt: DateTime.now(),
-        skillsProgress: {},
-      );
-
-      _userProfile!.fieldProgress[newFieldId] = newFieldProgress;
+      // دمج skillLevels الجديدة مع preferences الحالية
+      if (skillLevels.isNotEmpty) {
+        final currentSkillLevels =
+            Map<String, dynamic>.from(
+              _userProfile!.preferences['skillLevels']
+                  as Map<String, dynamic>? ?? {},
+            )..addAll(skillLevels);
+        _userProfile!.preferences['skillLevels'] = currentSkillLevels;
+      }
 
       // تحديث المجال في البروفايل
       if (isPrimary) {
@@ -1948,11 +2056,12 @@ class GlobalLearningState extends ChangeNotifier {
         _userProfile!.secondaryFieldId = newFieldId;
       }
 
-      // حفظ في Firebase
+      // حفظ في Firebase — بدون fieldProgress الجديد لأن
+      // _initializeFieldProgress ستحفظه بشكل منفصل بعده
       Map<String, dynamic> updates = {
-        'fieldProgress': _userProfile!.fieldProgress.map(
-          (key, value) => MapEntry(key, value.toJson()),
-        ),
+        'fieldProgress.$oldFieldId': FieldValue.delete(),
+        if (skillLevels.isNotEmpty)
+          'preferences.skillLevels': _userProfile!.preferences['skillLevels'],
       };
 
       if (isPrimary) {
@@ -1965,6 +2074,13 @@ class GlobalLearningState extends ChangeNotifier {
           .collection('user_profiles')
           .doc(_currentUserId)
           .update(updates);
+
+      // تهيئة التقدم للمجال الجديد مع تمرير skillLevels صراحةً
+      await _initializeFieldProgress(
+        _currentUserId!,
+        newFieldId,
+        skillLevels: skillLevels,
+      );
 
       // تحميل بيانات المجال الجديد
       await loadField(newFieldId);
@@ -2351,6 +2467,9 @@ class SkillProgress {
   int weeklyActiveDays;
   String currentWeekKey;
   bool weeklyWarningSent;
+  /// true فقط عند اجتياز الاختبار بنجاح (outcome == passed).
+  /// هو المعيار الحقيقي لتصنيف المهارة كـ "متعلمة".
+  bool isAssessmentPassed;
 
   SkillProgress({
     required this.skillId,
@@ -2370,6 +2489,7 @@ class SkillProgress {
     this.weeklyActiveDays = 0,
     this.currentWeekKey = '',
     this.weeklyWarningSent = false,
+    this.isAssessmentPassed = false,
   });
 
   Map<String, dynamic> toJson() {
@@ -2393,6 +2513,7 @@ class SkillProgress {
       'weeklyActiveDays': weeklyActiveDays,
       'currentWeekKey': currentWeekKey,
       'weeklyWarningSent': weeklyWarningSent,
+      'isAssessmentPassed': isAssessmentPassed,
     };
   }
 
@@ -2425,6 +2546,7 @@ class SkillProgress {
       weeklyActiveDays: json['weeklyActiveDays'] as int? ?? 0,
       currentWeekKey: json['currentWeekKey'] as String? ?? '',
       weeklyWarningSent: json['weeklyWarningSent'] as bool? ?? false,
+      isAssessmentPassed: json['isAssessmentPassed'] as bool? ?? false,
     );
   }
 }

@@ -10,7 +10,8 @@ import '../policy/about_app_screen.dart';
 import '../policy/privacy_policy_screen.dart';
 import '../policy/terms_of_service_screen.dart';
 import '../notifications/notification_settings_screen.dart';
-import 'field_selector_screen.dart';
+import 'field_settings_screen.dart';
+import 'learning_preferences_screen.dart';
 import 'confirmation_dialogs.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -42,16 +43,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // إدارة المجالات
-                _buildFieldManagementSection(globalState),
+                // إدارة المجالات — زر للانتقال لشاشة منفصلة
+                _buildNavigationTile(
+                  icon: Icons.dashboard_rounded,
+                  title: 'مجالاتي',
+                  subtitle: 'إدارة المجال الأساسي والثانوي',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const FieldSettingsScreen(),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 24),
 
-                // تفضيلات التعلم
-                _buildLearningPreferencesSection(globalState),
-                const SizedBox(height: 24),
-
-                // الأهداف والالتزام
-                _buildGoalsSection(globalState),
+                // تفضيلات التعلم والأهداف — زر للانتقال لشاشة منفصلة
+                _buildNavigationTile(
+                  icon: Icons.tune_rounded,
+                  title: 'تفضيلات التعلم والأهداف',
+                  subtitle: 'الأوقات، أيام الأسبوع، مدة الجلسة، والأهداف',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LearningPreferencesScreen(),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 24),
 
                 // الإشعارات
@@ -73,466 +90,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // إدارة المجالات
-  // ═══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildFieldManagementSection(GlobalLearningState globalState) {
-    final primaryFieldId = globalState.primaryField;
-    final secondaryFieldId = globalState.secondaryField;
-    final primaryField =
-        primaryFieldId != null
-            ? globalState.getFieldData(primaryFieldId)
-            : null;
-    final secondaryField =
-        secondaryFieldId != null
-            ? globalState.getFieldData(secondaryFieldId)
-            : null;
 
-    return _buildSection(
-      title: 'مجالاتي',
-      icon: Icons.dashboard_rounded,
-      children: [
-        _buildFieldCard(
-          title: 'المجال الأساسي',
-          fieldName: primaryField?.name ?? 'غير محدد',
-          fieldIcon: primaryField?.icon ?? '📚',
-          isPrimary: true,
-          onChangeTap: () => _changePrimaryField(globalState),
-        ),
-        const SizedBox(height: 12),
-        if (secondaryField != null)
-          _buildFieldCard(
-            title: 'المجال الثانوي',
-            fieldName: secondaryField.name,
-            fieldIcon: secondaryField.icon,
-            isPrimary: false,
-            onChangeTap: () => _changeSecondaryField(globalState),
-            onDeleteTap: () => _removeSecondaryField(globalState),
-          )
-        else
-          _buildAddSecondaryFieldCard(globalState),
-      ],
-    );
-  }
-
-  Widget _buildFieldCard({
-    required String title,
-    required String fieldName,
-    required String fieldIcon,
-    required bool isPrimary,
-    required VoidCallback onChangeTap,
-    VoidCallback? onDeleteTap,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(fieldIcon, style: const TextStyle(fontSize: 24)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  fieldName,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.edit, size: 20),
-                onPressed: onChangeTap,
-                tooltip: 'تغيير',
-              ),
-              if (onDeleteTap != null)
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  onPressed: onDeleteTap,
-                  tooltip: 'حذف',
-                  color: Colors.red,
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAddSecondaryFieldCard(GlobalLearningState globalState) {
-    return InkWell(
-      onTap: () => _addSecondaryField(globalState),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Theme.of(
-            context,
-          ).colorScheme.primaryContainer.withOpacity(0.3),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
-            style: BorderStyle.solid,
-            width: 2,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.add_circle_outline,
-              color: Theme.of(context).colorScheme.primary,
-              size: 32,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'إضافة مجال ثانوي',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'وسّع معرفتك في مجال إضافي',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // تفضيلات التعلم
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  Widget _buildLearningPreferencesSection(GlobalLearningState globalState) {
-    final preferences = globalState.userProfile?.preferences ?? {};
-    final preferredTimesRaw = preferences['preferredTimes'];
-    final List<String> preferredTimes;
-    if (preferredTimesRaw is List) {
-      preferredTimes = preferredTimesRaw.map((e) => e.toString()).toList();
-    } else {
-      preferredTimes = ['morning'];
-    }
-    final weekDaysCount =
-        (preferences['weekDaysCount'] is int)
-            ? preferences['weekDaysCount'] as int
-            : int.tryParse(preferences['weekDaysCount']?.toString() ?? '') ?? 3;
-    final sessionDuration =
-        preferences['sessionDuration']?.toString() ?? 'medium';
-
-    return _buildSection(
-      title: 'تفضيلات التعلم',
-      icon: Icons.access_time_rounded,
-      children: [
-        const Text(
-          'الأوقات المفضلة',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: [
-            _buildTimeChip('صباحاً', 'morning', preferredTimes, globalState),
-            _buildTimeChip('ظهراً', 'afternoon', preferredTimes, globalState),
-            _buildTimeChip('مساءً', 'evening', preferredTimes, globalState),
-            _buildTimeChip('ليلاً', 'night', preferredTimes, globalState),
-          ],
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          'أيام الأسبوع',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: Slider(
-                value: weekDaysCount.toDouble(),
-                min: 1,
-                max: 7,
-                divisions: 6,
-                label: '$weekDaysCount أيام',
-                onChanged: (value) {
-                  _updatePreference(
-                    globalState,
-                    'weekDaysCount',
-                    value.toInt(),
-                  );
-                },
-              ),
-            ),
-            Text(
-              '$weekDaysCount',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(width: 8),
-            Text('أيام', style: TextStyle(color: Colors.grey.shade600)),
-          ],
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          'مدة الجلسة',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            _buildDurationOption(
-              'short',
-              'قصيرة\n15-30 دقيقة',
-              sessionDuration,
-              globalState,
-            ),
-            const SizedBox(width: 8),
-            _buildDurationOption(
-              'medium',
-              'متوسطة\n30-60 دقيقة',
-              sessionDuration,
-              globalState,
-            ),
-            const SizedBox(width: 8),
-            _buildDurationOption(
-              'long',
-              'طويلة\n60+ دقيقة',
-              sessionDuration,
-              globalState,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTimeChip(
-    String label,
-    String value,
-    List<String> selectedTimes,
-    GlobalLearningState globalState,
-  ) {
-    final isSelected = selectedTimes.contains(value);
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (selected) async {
-        List<String> newTimes = List.from(selectedTimes);
-        if (selected) {
-          newTimes.add(value);
-        } else {
-          if (newTimes.length > 1) newTimes.remove(value);
-        }
-        await _updatePreference(globalState, 'preferredTimes', newTimes);
-      },
-      selectedColor: Theme.of(context).colorScheme.primaryContainer,
-    );
-  }
-
-  Widget _buildDurationOption(
-    String value,
-    String label,
-    String currentValue,
-    GlobalLearningState globalState,
-  ) {
-    final isSelected = currentValue == value;
-    return Expanded(
-      child: InkWell(
-        onTap: () => _updatePreference(globalState, 'sessionDuration', value),
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color:
-                isSelected
-                    ? Theme.of(context).colorScheme.primaryContainer
-                    : Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color:
-                  isSelected
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.transparent,
-              width: 2,
-            ),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // الأهداف والالتزام
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  Widget _buildGoalsSection(GlobalLearningState globalState) {
-    final preferences = globalState.userProfile?.preferences ?? {};
-    final goalsRaw = preferences['goals'];
-    final List<String> goals;
-    if (goalsRaw is List) {
-      goals = goalsRaw.map((e) => e.toString()).toList();
-    } else {
-      goals = ['professional'];
-    }
-    final commitmentLevel =
-        preferences['commitmentLevel']?.toString() ?? 'medium';
-
-    return _buildSection(
-      title: 'أهدافك',
-      icon: Icons.flag_rounded,
-      children: [
-        const Text(
-          'ماذا تريد أن تحقق؟',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _buildGoalChip(
-              'professional',
-              '💼 المهارات المهنية',
-              goals,
-              globalState,
-            ),
-            _buildGoalChip('certificate', '🎓 الشهادات', goals, globalState),
-            _buildGoalChip(
-              'side_project',
-              '🚀 مشروع جانبي',
-              goals,
-              globalState,
-            ),
-            _buildGoalChip(
-              'career_change',
-              '🔄 تغيير المسار',
-              goals,
-              globalState,
-            ),
-            _buildGoalChip('personal', '✨ التطوير الشخصي', goals, globalState),
-          ],
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          'مستوى الالتزام',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
-        const SizedBox(height: 8),
-        _buildCommitmentSelector(commitmentLevel, globalState),
-      ],
-    );
-  }
-
-  Widget _buildGoalChip(
-    String value,
-    String label,
-    List<String> selectedGoals,
-    GlobalLearningState globalState,
-  ) {
-    final isSelected = selectedGoals.contains(value);
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (selected) {
-        List<String> newGoals = List.from(selectedGoals);
-        if (selected) {
-          newGoals.add(value);
-        } else {
-          if (newGoals.length > 1) newGoals.remove(value);
-        }
-        _updatePreference(globalState, 'goals', newGoals);
-      },
-      selectedColor: Theme.of(context).colorScheme.primaryContainer,
-    );
-  }
-
-  Widget _buildCommitmentSelector(
-    String currentValue,
-    GlobalLearningState globalState,
-  ) {
-    return Row(
-      children: [
-        _buildCommitmentOption('light', 'خفيف', currentValue, globalState),
-        const SizedBox(width: 8),
-        _buildCommitmentOption('medium', 'متوسط', currentValue, globalState),
-        const SizedBox(width: 8),
-        _buildCommitmentOption('high', 'عالي', currentValue, globalState),
-      ],
-    );
-  }
-
-  Widget _buildCommitmentOption(
-    String value,
-    String label,
-    String currentValue,
-    GlobalLearningState globalState,
-  ) {
-    final isSelected = currentValue == value;
-    return Expanded(
-      child: InkWell(
-        onTap: () => _updatePreference(globalState, 'commitmentLevel', value),
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color:
-                isSelected
-                    ? Theme.of(context).colorScheme.primaryContainer
-                    : Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color:
-                  isSelected
-                      ? Theme.of(context).colorScheme.primary
-                      : Colors.transparent,
-              width: 2,
-            ),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // الإشعارات
@@ -786,6 +345,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// زر انتقال لشاشة كاملة — يُستخدم لقسم المجالات
+  Widget _buildNavigationTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.primaryContainer.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                icon,
+                color: Theme.of(context).colorScheme.primary,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_left,
+              color: Colors.grey.shade400,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Helpers
   // ═══════════════════════════════════════════════════════════════════════════
@@ -793,149 +420,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ═══════════════════════════════════════════════════════════════════════════
   // Actions
   // ═══════════════════════════════════════════════════════════════════════════
-
-  Future<void> _changePrimaryField(GlobalLearningState globalState) async {
-    final confirmed = await ConfirmationDialogs.showChangeFieldWarning(
-      context,
-      isPrimary: true,
-    );
-    if (!confirmed) return;
-
-    final newFieldId = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder:
-            (context) => FieldSelectorScreen(
-              isPrimary: true,
-              excludeFields: globalState.selectedFields,
-            ),
-      ),
-    );
-    if (newFieldId == null) return;
-
-    try {
-      await globalState.changeField(isPrimary: true, newFieldId: newFieldId);
-      if (mounted) {
-        ConfirmationDialogs.showSuccessSnackBar(
-          context,
-          'تم تغيير المجال الأساسي بنجاح',
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ConfirmationDialogs.showErrorSnackBar(
-          context,
-          'فشل تغيير المجال: ${e.toString()}',
-        );
-      }
-    }
-  }
-
-  Future<void> _changeSecondaryField(GlobalLearningState globalState) async {
-    final confirmed = await ConfirmationDialogs.showChangeFieldWarning(
-      context,
-      isPrimary: false,
-    );
-    if (!confirmed) return;
-
-    final newFieldId = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder:
-            (context) => FieldSelectorScreen(
-              isPrimary: false,
-              excludeFields: globalState.selectedFields,
-            ),
-      ),
-    );
-    if (newFieldId == null) return;
-
-    try {
-      await globalState.changeField(isPrimary: false, newFieldId: newFieldId);
-      if (mounted) {
-        ConfirmationDialogs.showSuccessSnackBar(
-          context,
-          'تم تغيير المجال الثانوي بنجاح',
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ConfirmationDialogs.showErrorSnackBar(
-          context,
-          'فشل تغيير المجال: ${e.toString()}',
-        );
-      }
-    }
-  }
-
-  Future<void> _addSecondaryField(GlobalLearningState globalState) async {
-    final newFieldId = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder:
-            (context) => FieldSelectorScreen(
-              isPrimary: false,
-              excludeFields: globalState.selectedFields,
-            ),
-      ),
-    );
-    if (newFieldId == null) return;
-
-    try {
-      await globalState.addSecondaryField(newFieldId);
-      if (mounted) {
-        ConfirmationDialogs.showSuccessSnackBar(
-          context,
-          'تم إضافة المجال الثانوي بنجاح',
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ConfirmationDialogs.showErrorSnackBar(
-          context,
-          'فشل إضافة المجال: ${e.toString()}',
-        );
-      }
-    }
-  }
-
-  Future<void> _removeSecondaryField(GlobalLearningState globalState) async {
-    final confirmed = await ConfirmationDialogs.showRemoveSecondaryFieldWarning(
-      context,
-    );
-    if (!confirmed) return;
-
-    try {
-      await globalState.removeSecondaryField();
-      if (mounted) {
-        ConfirmationDialogs.showSuccessSnackBar(
-          context,
-          'تم حذف المجال الثانوي',
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ConfirmationDialogs.showErrorSnackBar(
-          context,
-          'فشل حذف المجال: ${e.toString()}',
-        );
-      }
-    }
-  }
-
-  Future<void> _updatePreference(
-    GlobalLearningState globalState,
-    String key,
-    dynamic value,
-  ) async {
-    try {
-      await globalState.updatePreferences({key: value});
-    } catch (e) {
-      if (mounted) {
-        ConfirmationDialogs.showErrorSnackBar(context, 'فشل حفظ التفضيلات');
-      }
-    }
-  }
 
   Future<void> _handleSignOut() async {
     final confirmed = await showDialog<bool>(

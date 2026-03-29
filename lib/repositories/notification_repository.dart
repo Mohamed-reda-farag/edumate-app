@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_ce/hive_ce.dart';
@@ -18,6 +20,7 @@ class NotificationRepository {
 
   final FirebaseFirestore _firestore;
   final String Function() _getUserId;
+  Completer<Box<NotificationHistoryItem>>? _historyBoxCompleter;
 
   // ── userId ──────────────────────────────────────────────────────────────────
 
@@ -83,7 +86,21 @@ class NotificationRepository {
     if (Hive.isBoxOpen(kNotificationHistoryBox)) {
       return Hive.box<NotificationHistoryItem>(kNotificationHistoryBox);
     }
-    return Hive.openBox<NotificationHistoryItem>(kNotificationHistoryBox);
+
+    if (_historyBoxCompleter != null) return _historyBoxCompleter!.future;
+
+    _historyBoxCompleter = Completer<Box<NotificationHistoryItem>>();
+    try {
+      final box =
+          await Hive.openBox<NotificationHistoryItem>(kNotificationHistoryBox);
+      _historyBoxCompleter!.complete(box);
+    } catch (e) {
+      _historyBoxCompleter!.completeError(e);
+      rethrow;
+    } finally {
+      _historyBoxCompleter = null;
+    }
+    return Hive.box<NotificationHistoryItem>(kNotificationHistoryBox);
   }
 
   /// جلب كل سجل الإشعارات (مرتب من الأحدث للأقدم)

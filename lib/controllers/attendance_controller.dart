@@ -18,10 +18,10 @@ class AttendanceController extends ChangeNotifier {
     required ScheduleRepository scheduleRepo,
     required GamificationService gamificationService,
     required SemesterController semesterController,
-  })  : _attendanceRepo = attendanceRepo,
-        _scheduleRepo = scheduleRepo,
-        _gamificationService = gamificationService,
-        _semesterController = semesterController;
+  }) : _attendanceRepo = attendanceRepo,
+       _scheduleRepo = scheduleRepo,
+       _gamificationService = gamificationService,
+       _semesterController = semesterController;
 
   final AttendanceRepository _attendanceRepo;
   final ScheduleRepository _scheduleRepo;
@@ -139,8 +139,9 @@ class AttendanceController extends ChangeNotifier {
     try {
       await _attendanceRepo.addRecord(record);
 
-      final list =
-          List<AttendanceRecord>.from(_recordsBySubject[record.subjectId] ?? []);
+      final list = List<AttendanceRecord>.from(
+        _recordsBySubject[record.subjectId] ?? [],
+      );
       list.insert(0, record);
       _recordsBySubject[record.subjectId] = list;
 
@@ -192,6 +193,16 @@ class AttendanceController extends ChangeNotifier {
         completionRate: completionRate,
         notes: notes,
       );
+
+      // تحديث _todaySessions محلياً فوراً بدون انتظار الـ Stream
+      _todaySessions = _todaySessions.map((s) {
+        if (s.id != sessionId) return s;
+        return s.copyWith(
+          status: status,
+          completionRate: completionRate ?? s.completionRate,
+          notes: notes ?? s.notes,
+        );
+      }).toList();
 
       final targetSession = _todaySessions.cast<StudySession?>().firstWhere(
             (s) => s?.id == sessionId,
@@ -248,9 +259,8 @@ class AttendanceController extends ChangeNotifier {
     _setLoading(true);
     try {
       await _attendanceRepo.deleteSessionsBySubject(subjectId);
-      _todaySessions = _todaySessions
-          .where((s) => s.subjectId != subjectId)
-          .toList();
+      _todaySessions =
+          _todaySessions.where((s) => s.subjectId != subjectId).toList();
       _recordsBySubject.remove(subjectId);
       _error = null;
     } catch (e) {
@@ -290,7 +300,9 @@ class AttendanceController extends ChangeNotifier {
       );
       await Future.wait(futures, eagerError: false);
     } catch (e) {
-      debugPrint('[AttendanceController] _preloadAllSubjectRecords partial error: $e');
+      debugPrint(
+        '[AttendanceController] _preloadAllSubjectRecords partial error: $e',
+      );
     }
   }
 
@@ -302,15 +314,14 @@ class AttendanceController extends ChangeNotifier {
       final existing = await _scheduleRepo.getPerformance(subjectId);
       final totalLectures =
           _semesterController.activeSemester?.totalLecturesPerSubject ??
-              records.length;
+          records.length;
 
       // ── المحاضرات فقط لحساب attendedCount و lateCount ────────────────
-      final lectureRecords = records
-          .where((r) => r.sessionType == 'lec')
-          .toList();
+      final lectureRecords =
+          records.where((r) => r.sessionType == 'lec').toList();
 
       int attendedCount = 0;
-      int lateCount     = 0;
+      int lateCount = 0;
 
       for (final r in lectureRecords) {
         if (r.status == AttendanceStatus.attended) {
@@ -322,19 +333,22 @@ class AttendanceController extends ChangeNotifier {
       }
 
       // ── avgUnderstanding من كل الأنواع مع تأثير التأخر ───────────────
-      final allRatedRecords = records
-          .where((r) =>
-              r.understandingRating != null &&
-              (r.status == AttendanceStatus.attended ||
-                  r.status == AttendanceStatus.late))
-          .toList();
+      final allRatedRecords =
+          records
+              .where(
+                (r) =>
+                    r.understandingRating != null &&
+                    (r.status == AttendanceStatus.attended ||
+                        r.status == AttendanceStatus.late),
+              )
+              .toList();
 
       double totalRating = 0;
       double totalWeight = 0;
 
       for (final r in allRatedRecords) {
         final rawRating = r.understandingRating!.toDouble();
-        double rating   = rawRating;
+        double rating = rawRating;
 
         if (r.status == AttendanceStatus.late &&
             r.lectureDurationMinutes != null &&
@@ -358,9 +372,10 @@ class AttendanceController extends ChangeNotifier {
         totalWeight += 1.0;
       }
 
-      final avgUnderstanding = totalWeight == 0
-          ? (existing?.avgUnderstanding ?? 3.0)
-          : totalRating / totalWeight;
+      final avgUnderstanding =
+          totalWeight == 0
+              ? (existing?.avgUnderstanding ?? 3.0)
+              : totalRating / totalWeight;
 
       final updated = SubjectPerformance(
         subjectId: subjectId,
@@ -390,16 +405,22 @@ class AttendanceController extends ChangeNotifier {
     try {
       final existing = await _scheduleRepo.getPerformance(subjectId);
       if (existing == null) return;
-
+ 
       final addedHours = durationMinutes / 60.0;
-
-      // إعادة حساب avgUnderstanding إذا قدّم الطالب تقييماً —
-      // نحسب متوسطاً مرجَّحاً: نعطي تقييم الجلسة الحالية وزناً واحداً
-      // مقابل المتوسط القديم لتجنب تأثير قيمة واحدة بشكل مبالغ فيه.
-      final newAvg = (understandingRating != null)
-          ? (existing.avgUnderstanding + understandingRating) / 2.0
+ 
+      const avgSessionHours = 0.75; // 45 دقيقة كمتوسط جلسة
+      final prevSessionCount = existing.studyHoursLogged > 0
+          ? (existing.studyHoursLogged / avgSessionHours)
+              .round()
+              .clamp(1, 200)
+          : 0;
+ 
+      final newAvg = (understandingRating != null && prevSessionCount >= 0)
+          ? ((existing.avgUnderstanding * prevSessionCount) +
+                  understandingRating) /
+              (prevSessionCount + 1)
           : existing.avgUnderstanding;
-
+ 
       final updated = SubjectPerformance(
         subjectId: existing.subjectId,
         subjectName: existing.subjectName,
@@ -411,7 +432,7 @@ class AttendanceController extends ChangeNotifier {
         studyHoursLogged: existing.studyHoursLogged + addedHours,
         lastUpdated: DateTime.now(),
       );
-
+ 
       await _scheduleRepo.savePerformance(updated);
       debugPrint(
         '[AttendanceController] Study performance updated: $subjectId '

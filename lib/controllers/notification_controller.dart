@@ -193,16 +193,26 @@ class NotificationController extends ChangeNotifier {
     }
   }
 
+  /// تذكير بتوليد خطة المذاكرة — يُستدعى من ScheduleController
+  Future<void> onStudyPlanMissing() async {
+    if (!_settings.isEnabled || !_settings.taskReminders) return;
+    try {
+      await NotificationSchedulerService.sendStudyPlanReminderNotification(
+        settings: _settings,
+      );
+      await _addToHistory(
+        title: '📚 لم تُولَّد خطة المذاكرة بعد',
+        body: 'ابدأ أسبوعك بخطة ذكية',
+        category: NotificationCategory.tasks,
+      );
+    } catch (e) {
+      debugPrint('[NotifController] onStudyPlanMissing error: $e');
+    }
+  }
+
   /// تفعيل/إيقاف كل الإشعارات دفعةً واحدة.
-  ///
-  /// [FIX #2] الترتيب الصحيح: cancelAll() يُستدعى أولاً عند الإيقاف
-  /// قبل updateSettings() لمنع race condition حيث تُطلق _rescheduleAfterSettingsChange
-  /// إشعارات جديدة في الـ background ثم يأتي cancelAll() ويمسحها،
-  /// لكن reschedule قد تنتهي بعده وتُعيد الجدولة مجدداً.
   Future<void> toggleEnabled(bool value) async {
     if (!value) {
-      // [FIX #2] أوقف الجدولة فوراً قبل updateSettings
-      // هذا يضمن عدم وصول إشعارات للمستخدم بعد الإيقاف
       await NotificationService.instance.cancelAll();
     }
     await updateSettings(_settings.copyWith(isEnabled: value));
@@ -259,14 +269,21 @@ class NotificationController extends ChangeNotifier {
     }
   }
 
-  /// جدولة إشعار مهمة مخصصة جديدة
+  /// جدولة إشعارات مهمة مخصصة جديدة (عادية أو دورية)
   Future<void> scheduleCustomTask(TaskModel task) async {
     if (!_settings.isEnabled || !_settings.taskReminders) return;
     try {
-      await NotificationSchedulerService.scheduleCustomTaskNotification(
-        task: task,
-        settings: _settings,
-      );
+      if (task.isRecurring) {
+        await NotificationSchedulerService.scheduleRecurringTaskNotifications(
+          task: task,
+          settings: _settings,
+        );
+      } else {
+        await NotificationSchedulerService.scheduleCustomTaskNotification(
+          task: task,
+          settings: _settings,
+        );
+      }
     } catch (e) {
       debugPrint('[NotifController] scheduleCustomTask error: $e');
     }
@@ -364,6 +381,20 @@ class NotificationController extends ChangeNotifier {
     }
   }
 
+  /// إلغاء تذكير مهمة مخصصة عند حذفها (عادية أو دورية)
+  Future<void> onCustomTaskDeleted(String taskId, {bool isRecurring = false}) async {
+    try {
+      if (isRecurring) {
+        await NotificationSchedulerService.cancelRecurringTaskNotifications(
+            taskId);
+      } else {
+        await NotificationSchedulerService.cancelCustomTaskReminder(taskId);
+      }
+    } catch (e) {
+      debugPrint('[NotifController] onCustomTaskDeleted error: $e');
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   //  Achievement & Milestone — يُستدعى من GamificationController
   // ══════════════════════════════════════════════════════════════════════════
@@ -401,9 +432,6 @@ class NotificationController extends ChangeNotifier {
         percentage: percentage,
         settings: _settings,
       );
-
-      // [FIX #6] إضافة للـ history — كان مفقوداً بينما onAchievementUnlocked
-      // و onLevelUp يُضيفان. التناسق ضروري لظهور هذه الإشعارات في السجل.
       if (_settings.isEnabled && _settings.motivational) {
         await _addToHistory(
           title: '⭐ تقدم رائع!',
@@ -413,6 +441,26 @@ class NotificationController extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('[NotifController] onSkillMilestone error: $e');
+    }
+  }
+
+  Future<void> onCourseAccessed({
+    required String courseId,
+    required String courseTitle,
+    required String skillName,
+  }) async {
+    if (!_settings.isEnabled || !_settings.taskReminders) return;
+    try {
+      await NotificationSchedulerService.cancelCourseInactive(courseId);
+      await NotificationSchedulerService.scheduleCourseInactiveNotification(
+        courseId: courseId,
+        courseTitle: courseTitle,
+        settings: _settings,
+      );
+
+      await _updateBridge(_settings, debounce: true);
+    } catch (e) {
+      debugPrint('[NotifController] onCourseAccessed error: $e');
     }
   }
 

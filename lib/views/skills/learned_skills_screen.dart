@@ -8,7 +8,6 @@ import '../../widgets/empty_state_widget.dart';
 import '../../utils/skill_utils.dart';
 import '../../router.dart';
 
-
 /// شاشة المهارات المتعلمة (التقدم ≥ 80%)
 class LearnedSkillsScreen extends StatefulWidget {
   const LearnedSkillsScreen({super.key});
@@ -84,20 +83,22 @@ class _LearnedSkillsScreenState extends State<LearnedSkillsScreen> {
             // ترتيب المهارات
             final sortedSkills = _sortSkills(learnedSkills, state);
 
-            // حساب الإحصائيات
-            final avgProgress =
-                sortedSkills.fold<int>(
-                  0,
-                  (sum, skill) => sum + skill.progressPercentage,
-                ) /
-                sortedSkills.length;
+            // حساب إجمالي الكورسات المكتملة عبر جميع المهارات
+            final totalCompletedCourses = sortedSkills.fold<int>(
+              0,
+              (sum, skill) =>
+                  sum +
+                  skill.coursesProgress.values
+                      .where((c) => c.isCompleted)
+                      .length,
+            );
 
             return RefreshIndicator(
               onRefresh: () => state.refreshCurrentUser(),
               child: Column(
                 children: [
                   // Header Stats
-                  _buildHeaderStats(sortedSkills.length, avgProgress),
+                  _buildHeaderStats(sortedSkills.length, totalCompletedCourses),
 
                   // قائمة المهارات
                   Expanded(
@@ -121,7 +122,7 @@ class _LearnedSkillsScreenState extends State<LearnedSkillsScreen> {
     );
   }
 
-  Widget _buildHeaderStats(int skillsCount, double avgProgress) {
+  Widget _buildHeaderStats(int skillsCount, int totalCompletedCourses) {
     return Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
@@ -151,10 +152,10 @@ class _LearnedSkillsScreenState extends State<LearnedSkillsScreen> {
           const SizedBox(height: 8),
           Row(
             children: [
-              const Icon(Icons.bar_chart, size: 20, color: Colors.white70),
+              const Icon(Icons.school, size: 20, color: Colors.white70),
               const SizedBox(width: 8),
               Text(
-                'متوسط التقدم: ${avgProgress.toStringAsFixed(0)}%',
+                'إجمالي الكورسات المكتملة: $totalCompletedCourses',
                 style: const TextStyle(fontSize: 14, color: Colors.white70),
               ),
             ],
@@ -183,9 +184,10 @@ class _LearnedSkillsScreenState extends State<LearnedSkillsScreen> {
 
     // حساب تاريخ الإكمال (أحدث completedAt)
     final completionDate = _getCompletionDate(skillProgress);
-    final completionText = completionDate != null
-        ? _dateFormat.format(completionDate)
-        : 'تاريخ غير معروف';
+    final completionText =
+        completionDate != null
+            ? _dateFormat.format(completionDate)
+            : 'تاريخ غير معروف';
 
     return Card(
       elevation: 2,
@@ -425,8 +427,7 @@ class _LearnedSkillsScreenState extends State<LearnedSkillsScreen> {
       case _SortOption.completionDate:
         // pre-compute تواريخ الإكمال مرة واحدة قبل الـ sort
         final dateMap = {
-          for (final s in skills)
-            s.skillId: _getCompletionDate(s)
+          for (final s in skills) s.skillId: _getCompletionDate(s),
         };
         sorted.sort((a, b) {
           final dateA = dateMap[a.skillId];
@@ -440,7 +441,8 @@ class _LearnedSkillsScreenState extends State<LearnedSkillsScreen> {
 
       case _SortOption.percentage:
         sorted.sort(
-            (a, b) => b.progressPercentage.compareTo(a.progressPercentage));
+          (a, b) => b.progressPercentage.compareTo(a.progressPercentage),
+        );
         break;
 
       case _SortOption.coursesCount:
@@ -448,10 +450,12 @@ class _LearnedSkillsScreenState extends State<LearnedSkillsScreen> {
         final countMap = {
           for (final s in skills)
             s.skillId:
-                s.coursesProgress.values.where((c) => c.isCompleted).length
+                s.coursesProgress.values.where((c) => c.isCompleted).length,
         };
-        sorted.sort((a, b) =>
-            (countMap[b.skillId] ?? 0).compareTo(countMap[a.skillId] ?? 0));
+        sorted.sort(
+          (a, b) =>
+              (countMap[b.skillId] ?? 0).compareTo(countMap[a.skillId] ?? 0),
+        );
         break;
 
       case _SortOption.level:
@@ -461,10 +465,12 @@ class _LearnedSkillsScreenState extends State<LearnedSkillsScreen> {
           for (final s in skills)
             s.skillId: SkillUtils.levelIndex(
               state.getSkillData(s.fieldId, s.skillId)?.level ?? 'foundation',
-            )
+            ),
         };
-        sorted.sort((a, b) =>
-            (levelMap[b.skillId] ?? 0).compareTo(levelMap[a.skillId] ?? 0));
+        sorted.sort(
+          (a, b) =>
+              (levelMap[b.skillId] ?? 0).compareTo(levelMap[a.skillId] ?? 0),
+        );
         break;
     }
 

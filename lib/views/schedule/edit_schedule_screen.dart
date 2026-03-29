@@ -5,9 +5,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../controllers/schedule_controller.dart';
 import '../../controllers/semester_controller.dart';
+import '../../models/subject_schedule_entry_model.dart';
 import '../../models/schedule_time_settings.dart';
 import '../../models/subject_model.dart';
-import '../../repositories/schedule_repository.dart';
 import '../../utils/stable_hash.dart';
 
 const List<String> _kDays = [
@@ -39,7 +39,7 @@ class _EditScheduleScreenState extends State<EditScheduleScreen> {
   void initState() {
     super.initState();
     _userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    _loadTimeSlots();
+    if (_userId.isNotEmpty) _loadTimeSlots();
   }
 
   Future<void> _loadTimeSlots() async {
@@ -568,18 +568,16 @@ class _CellEditorSheet extends StatefulWidget {
 }
 
 class _CellEditorSheetState extends State<_CellEditorSheet> {
-  late TextEditingController _nameCtrl;
   late String _sessionType;
   Subject? _selectedSubject;
-
+ 
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(text: widget.initial.subjectName);
     _sessionType = widget.initial.sessionType.isEmpty
         ? 'lec'
         : widget.initial.sessionType;
-
+ 
     if (widget.initial.subjectId.isNotEmpty) {
       _selectedSubject = widget.subjects
           .cast<Subject?>()
@@ -589,24 +587,52 @@ class _CellEditorSheetState extends State<_CellEditorSheet> {
           );
     }
   }
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    super.dispose();
-  }
-
+ 
   void _onSubjectSelected(Subject? subject) {
-    setState(() {
-      _selectedSubject = subject;
-      if (subject != null) _nameCtrl.text = subject.name;
-    });
+    setState(() => _selectedSubject = subject);
   }
-
+ 
   @override
   Widget build(BuildContext context) {
-    final hasSubjects = widget.subjects.isNotEmpty;
-
+    if (widget.subjects.isEmpty) {
+      return Padding(
+        padding: EdgeInsets.only(
+          left: 16, right: 16, top: 24,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.info_outline,
+                size: 48,
+                color: Theme.of(context).colorScheme.primary),
+            const SizedBox(height: 16),
+            Text(
+              'لا توجد مواد مضافة بعد',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'أضف موادك الدراسية أولاً من شاشة إدارة المواد،\n'
+              'ثم عد لتعيينها في الجدول.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('حسناً'),
+            ),
+          ],
+        ),
+      );
+    }
+ 
     return Padding(
       padding: EdgeInsets.only(
         left: 16, right: 16, top: 16,
@@ -619,45 +645,27 @@ class _CellEditorSheetState extends State<_CellEditorSheet> {
           Text('تعديل الخلية',
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 16),
-
-          if (hasSubjects) ...[
-            DropdownButtonFormField<Subject>(
-              value: _selectedSubject,
-              decoration: const InputDecoration(
-                labelText: 'اختر مادة',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                const DropdownMenuItem<Subject>(
-                  value: null,
-                  child: Text('— كتابة يدوية —',
-                      style: TextStyle(color: Colors.grey)),
-                ),
-                ...widget.subjects.map((s) => DropdownMenuItem(
+ 
+          DropdownButtonFormField<Subject>(
+            value: _selectedSubject,
+            decoration: const InputDecoration(
+              labelText: 'اختر مادة',
+              border: OutlineInputBorder(),
+            ),
+            items: widget.subjects
+                .map((s) => DropdownMenuItem(
                       value: s,
                       child: Row(children: [
                         Text(s.name),
                         const SizedBox(width: 8),
                         _MiniDifficulty(difficulty: s.difficulty),
                       ]),
-                    )),
-              ],
-              onChanged: _onSubjectSelected,
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          if (!hasSubjects || _selectedSubject == null) ...[
-            TextField(
-              controller: _nameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'اسم المادة',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-
+                    ))
+                .toList(),
+            onChanged: _onSubjectSelected,
+          ),
+          const SizedBox(height: 12),
+ 
           DropdownButtonFormField<String>(
             value: _sessionType,
             decoration: const InputDecoration(
@@ -672,7 +680,7 @@ class _CellEditorSheetState extends State<_CellEditorSheet> {
             onChanged: (v) => setState(() => _sessionType = v ?? 'lec'),
           ),
           const SizedBox(height: 16),
-
+ 
           Row(
             children: [
               Expanded(
@@ -687,35 +695,31 @@ class _CellEditorSheetState extends State<_CellEditorSheet> {
               const SizedBox(width: 8),
               Expanded(
                 child: FilledButton(
-                  onPressed: () {
-                    final name =
-                        _selectedSubject?.name ?? _nameCtrl.text.trim();
-                    final subjectId = _selectedSubject?.id ?? '';
-                    if (name.isEmpty) return;
-
-                    final entry = SubjectScheduleEntry(
-                      id: widget.initial.id.isNotEmpty
-                          ? widget.initial.id
-                          : 'entry_${DateTime.now().millisecondsSinceEpoch}_${stableHash(name)}',
-                      subjectName: name,
-                      subjectId: subjectId,
-                      row: widget.initial.row,
-                      col: widget.initial.col,
-                      sessionType: _sessionType,
-                    );
-                    widget.onSave(entry);
-
-                    if (subjectId.isNotEmpty && _selectedSubject != null) {
-                      context
-                          .read<ScheduleController>()
-                          .updatePerformanceDifficulty(
-                            subjectId,
-                            _selectedSubject!.difficulty,
+                  onPressed: _selectedSubject == null
+                      ? null
+                      : () {
+                          final entry = SubjectScheduleEntry(
+                            id: widget.initial.id.isNotEmpty
+                                ? widget.initial.id
+                                : 'entry_${DateTime.now().millisecondsSinceEpoch}'
+                                  '_${stableHash(_selectedSubject!.name)}',
                             subjectName: _selectedSubject!.name,
+                            subjectId: _selectedSubject!.id,
+                            row: widget.initial.row,
+                            col: widget.initial.col,
+                            sessionType: _sessionType,
                           );
-                    }
-                    Navigator.pop(context);
-                  },
+                          widget.onSave(entry);
+ 
+                          context
+                              .read<ScheduleController>()
+                              .updatePerformanceDifficulty(
+                                _selectedSubject!.id,
+                                _selectedSubject!.difficulty,
+                                subjectName: _selectedSubject!.name,
+                              );
+                          Navigator.pop(context);
+                        },
                   child: const Text('حفظ'),
                 ),
               ),

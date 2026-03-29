@@ -16,20 +16,12 @@ import 'notification_background_bridge.dart';
 // ══════════════════════════════════════════════════════════════════════════════
 
 const String kNotificationDailySyncTask = 'notificationDailySync';
-const String kNotificationDailySyncTag  = 'notification_daily_sync_tag';
+const String kNotificationDailySyncTag = 'notification_daily_sync_tag';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Workmanager callback — يُضاف في main.dart إلى callbackDispatcher الموجود
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// يُستدعى من callbackDispatcher في main.dart عند تنفيذ كل task
-/// مثال:
-/// ```dart
-/// if (taskName == kNotificationDailySyncTask) {
-///   await NotificationSchedulerService.runBackgroundSync();
-///   return true;
-/// }
-/// ```
 class NotificationSchedulerService {
   NotificationSchedulerService._();
 
@@ -77,17 +69,15 @@ class NotificationSchedulerService {
         currentStreak: bridge.currentStreak,
         preferredTimes: bridge.preferredTimes,
         activeCourseIds: bridge.activeCourseIds,
-        courseLastAccess: bridge.courseLastAccess.map(
-          (k, v) {
-            DateTime parsed;
-            try {
-              parsed = DateTime.parse(v);
-            } catch (_) {
-              parsed = DateTime.now();
-            }
-            return MapEntry(k, parsed);
-          },
-        ),
+        courseLastAccess: bridge.courseLastAccess.map((k, v) {
+          DateTime parsed;
+          try {
+            parsed = DateTime.parse(v);
+          } catch (_) {
+            parsed = DateTime.now();
+          }
+          return MapEntry(k, parsed);
+        }),
       );
 
       await scheduleSummaryNotifications(settings: bridge.settings);
@@ -142,42 +132,229 @@ class NotificationSchedulerService {
   }) async {
     if (!settings.isEnabled || !settings.taskReminders) return;
     if (!task.hasReminder) return;
-    if (task.scheduledDate == null && task.dueDate == null) return;
+    if (task.scheduledDate == null) return;
 
-    final DateTime reminderTime;
-    if (task.scheduledDate != null) {
-      reminderTime = task.scheduledDate!;
-    } else {
-      reminderTime = task.dueDate!.subtract(const Duration(hours: 1));
-    }
-
-    if (reminderTime.isBefore(DateTime.now())) return;
-
-    final notifId = 'custom_${task.id}_reminder';
+    final now           = DateTime.now();
+    final taskTime      = task.scheduledDate!; // دائماً DateTime كامل عند hasReminder
+    final taskDateOnly  = DateTime(taskTime.year, taskTime.month, taskTime.day);
+    final todayOnly     = DateTime(now.year, now.month, now.day);
+    final daysUntilTask = taskDateOnly.difference(todayOnly).inDays;
 
     final box = await Hive.openBox<dynamic>(kScheduledNotificationsBox);
     final scheduledSet = Set<String>.from(
       box.get('scheduledIds', defaultValue: <String>[]) as List,
     );
-    if (scheduledSet.contains(notifId)) return;
 
-    final body = task.scheduledDate != null
-        ? '${task.title} الساعة ${_timeLabel(reminderTime)}'
-        : '${task.title} — باقي ساعة على الموعد النهائي';
+    // ── إشعار 1: قبل يوم كامل ────────────────────────────────────────────
+    // يُجدَّل فقط إذا كان الموعد بعد أكثر من يوم
+    if (daysUntilTask >= 1) {
+      final dayBefore = DateTime(
+        taskDateOnly.year,
+        taskDateOnly.month,
+        taskDateOnly.day - 1,
+        taskTime.hour,
+        taskTime.minute,
+      );
+      final dayBeforeId = 'custom_${task.id}_day_before';
 
-    await NotificationService.instance.scheduleAt(
-      id: NotificationIdHelper.toInt(notifId),
-      title: '📌 تذكير',
-      body: body,
-      scheduledTime: reminderTime,
-      category: NotificationCategory.tasks,
-      payload: jsonEncode({'type': 'custom', 'taskId': task.id}),
-      vibrate: settings.vibrate,
-      sound: settings.sound,
+      if (!scheduledSet.contains(dayBeforeId) && dayBefore.isAfter(now)) {
+        await NotificationService.instance.scheduleAt(
+          id: NotificationIdHelper.toInt(dayBeforeId),
+          title: '📌 تذكير — غداً',
+          body: '${task.title} غداً الساعة ${_timeLabel(taskTime)}',
+          scheduledTime: dayBefore,
+          category: NotificationCategory.tasks,
+          payload: jsonEncode({'type': 'custom_day_before', 'taskId': task.id}),
+          vibrate: settings.vibrate,
+          sound: settings.sound,
+        );
+        scheduledSet.add(dayBeforeId);
+      }
+    }
+
+    // ── إشعار 2: قبل ساعة من الموعد ─────────────────────────────────────
+    final oneHourBefore = taskTime.subtract(const Duration(hours: 1));
+    final oneHourId     = 'custom_${task.id}_one_hour';
+
+    if (!scheduledSet.contains(oneHourId) && oneHourBefore.isAfter(now)) {
+      await NotificationService.instance.scheduleAt(
+        id: NotificationIdHelper.toInt(oneHourId),
+        title: '📌 تذكير — باقي ساعة',
+        body: '${task.title} الساعة ${_timeLabel(taskTime)}',
+        scheduledTime: oneHourBefore,
+        category: NotificationCategory.tasks,
+        payload: jsonEncode({'type': 'custom_one_hour', 'taskId': task.id}),
+        vibrate: settings.vibrate,
+        sound: settings.sound,
+      );
+      scheduledSet.add(oneHourId);
+    }
+
+    // ── إشعار 3: في وقت المهمة نفسه ─────────────────────────────────────
+    final atTimeId = 'custom_${task.id}_at_time';
+
+    if (!scheduledSet.contains(atTimeId) && taskTime.isAfter(now)) {
+      await NotificationService.instance.scheduleAt(
+        id: NotificationIdHelper.toInt(atTimeId),
+        title: '📌 حان وقت مهمتك',
+        body: task.title,
+        scheduledTime: taskTime,
+        category: NotificationCategory.tasks,
+        payload: jsonEncode({'type': 'custom_at_time', 'taskId': task.id}),
+        vibrate: settings.vibrate,
+        sound: settings.sound,
+      );
+      scheduledSet.add(atTimeId);
+    }
+
+    await box.put('scheduledIds', scheduledSet.toList());
+    debugPrint('[NotifScheduler] Custom task reminders scheduled: ${task.id}');
+  }
+
+  /// جدولة إشعارات مهمة مخصصة دورية (يومية أو أسبوعية)
+  ///
+  /// المنطق:
+  /// - يومية: إشعار قبل المهمة بـ [reminderMinutesBefore] كل يوم
+  /// - أسبوعية: إشعار قبل يوم (نفس الوقت) + إشعار قبل [reminderMinutesBefore]
+  ///
+  /// يُستدعى من:
+  /// - [NotificationController.scheduleCustomTask] عند إنشاء المهمة
+  /// - [NotificationSchedulerService.runBackgroundSync] كل منتصف ليل
+  static Future<void> scheduleRecurringTaskNotifications({
+    required TaskModel task,
+    required NotificationSettings settings,
+  }) async {
+    if (!settings.isEnabled || !settings.taskReminders) return;
+    if (!task.isRecurring) return;
+    if (task.scheduledDate == null || task.recurrenceType == null) return;
+
+    final now      = DateTime.now();
+    final taskTime = task.scheduledDate!;
+
+    // حساب التاريخ الصحيح للتكرار القادم
+    final nextOccurrence = _nextRecurringDate(
+      original: taskTime,
+      recurrenceType: task.recurrenceType!,
+      now: now,
     );
 
-    scheduledSet.add(notifId);
+    if (nextOccurrence == null) return;
+
+    final box = await Hive.openBox<dynamic>(kScheduledNotificationsBox);
+    final scheduledSet = Set<String>.from(
+      box.get('scheduledIds', defaultValue: <String>[]) as List,
+    );
+
+    // ── إشعار 1: قبل يوم كامل (للمهام الأسبوعية فقط) ────────────────────
+    if (task.recurrenceType == RecurrenceType.weekly) {
+      final dayBefore = nextOccurrence.subtract(const Duration(days: 1));
+      final dayBeforeId =
+          'recurring_${task.id}_day_before_${_dateKey(nextOccurrence)}';
+
+      if (!scheduledSet.contains(dayBeforeId) && dayBefore.isAfter(now)) {
+        await NotificationService.instance.scheduleAt(
+          id: NotificationIdHelper.toInt(dayBeforeId),
+          title: '📌 تذكير — غداً',
+          body: '${task.title} غداً الساعة ${_timeLabel(nextOccurrence)}',
+          scheduledTime: dayBefore,
+          category: NotificationCategory.tasks,
+          payload: jsonEncode({
+            'type': 'recurring_day_before',
+            'taskId': task.id,
+          }),
+          vibrate: settings.vibrate,
+          sound: settings.sound,
+        );
+        scheduledSet.add(dayBeforeId);
+      }
+    }
+
+    // ── إشعار 2: قبل المهمة بـ reminderMinutesBefore ─────────────────────
+    if (task.reminderMinutesBefore > 0) {
+      final reminderTime = nextOccurrence.subtract(
+        Duration(minutes: task.reminderMinutesBefore),
+      );
+      final reminderId =
+          'recurring_${task.id}_reminder_${_dateKey(nextOccurrence)}';
+
+      if (!scheduledSet.contains(reminderId) && reminderTime.isAfter(now)) {
+        final minutesLabel = task.reminderMinutesBefore < 60
+            ? '${task.reminderMinutesBefore} دقيقة'
+            : task.reminderMinutesBefore == 60
+                ? 'ساعة'
+                : '${task.reminderMinutesBefore ~/ 60} ساعة'
+                    '${task.reminderMinutesBefore % 60 > 0 ? ' و${task.reminderMinutesBefore % 60} دقيقة' : ''}';
+
+        await NotificationService.instance.scheduleAt(
+          id: NotificationIdHelper.toInt(reminderId),
+          title: '📌 تذكير — بعد $minutesLabel',
+          body: '${task.title} الساعة ${_timeLabel(nextOccurrence)}',
+          scheduledTime: reminderTime,
+          category: NotificationCategory.tasks,
+          payload: jsonEncode({
+            'type': 'recurring_reminder',
+            'taskId': task.id,
+          }),
+          vibrate: settings.vibrate,
+          sound: settings.sound,
+        );
+        scheduledSet.add(reminderId);
+      }
+    }
+
+    // ── إشعار 3: في وقت المهمة نفسه ─────────────────────────────────────
+    final atTimeId =
+        'recurring_${task.id}_at_time_${_dateKey(nextOccurrence)}';
+
+    if (!scheduledSet.contains(atTimeId) && nextOccurrence.isAfter(now)) {
+      await NotificationService.instance.scheduleAt(
+        id: NotificationIdHelper.toInt(atTimeId),
+        title: '📌 حان وقت مهمتك',
+        body: task.title,
+        scheduledTime: nextOccurrence,
+        category: NotificationCategory.tasks,
+        payload: jsonEncode({
+          'type': 'recurring_at_time',
+          'taskId': task.id,
+        }),
+        vibrate: settings.vibrate,
+        sound: settings.sound,
+      );
+      scheduledSet.add(atTimeId);
+    }
+
     await box.put('scheduledIds', scheduledSet.toList());
+    debugPrint(
+      '[NotifScheduler] Recurring task scheduled: ${task.id} '
+      '(${task.recurrenceType!.name}) next: $nextOccurrence',
+    );
+  }
+
+  /// إلغاء إشعارات مهمة دورية
+  static Future<void> cancelRecurringTaskNotifications(String taskId) async {
+    try {
+      final box = await Hive.openBox<dynamic>(kScheduledNotificationsBox);
+      final ids = Set<String>.from(
+        box.get('scheduledIds', defaultValue: <String>[]) as List,
+      );
+
+      // إلغاء كل الإشعارات المرتبطة بهذه المهمة الدورية
+      final toCancel =
+          ids.where((id) => id.startsWith('recurring_${taskId}_')).toSet();
+
+      for (final id in toCancel) {
+        await NotificationService.instance.cancel(
+          NotificationIdHelper.toInt(id),
+        );
+      }
+
+      await _removeMultipleFromScheduledIds(toCancel);
+      debugPrint(
+          '[NotifScheduler] Recurring task cancelled: $taskId (${toCancel.length} notifications)');
+    } catch (e) {
+      debugPrint(
+          '[NotifScheduler] cancelRecurringTaskNotifications error: $e');
+    }
   }
 
   // ── Lecture ───────────────────────────────────────────────────────────────
@@ -246,8 +423,9 @@ class NotificationSchedulerService {
         final actualDurationMinutes =
             task.durationMinutes ?? (slotDuration > 0 ? slotDuration : 60);
 
-        final followupTime =
-            startTime.add(Duration(minutes: actualDurationMinutes + 10));
+        final followupTime = startTime.add(
+          Duration(minutes: actualDurationMinutes + 10),
+        );
         if (followupTime.isAfter(DateTime.now())) {
           await NotificationService.instance.scheduleAt(
             id: NotificationIdHelper.toInt(followupId),
@@ -255,8 +433,10 @@ class NotificationSchedulerService {
             body: 'هل حضرت محاضرة ${task.subjectName ?? task.title}؟',
             scheduledTime: followupTime,
             category: NotificationCategory.tasks,
-            payload:
-                jsonEncode({'type': 'lecture_followup', 'taskId': task.id}),
+            payload: jsonEncode({
+              'type': 'lecture_followup',
+              'taskId': task.id,
+            }),
             vibrate: false,
             sound: false,
           );
@@ -299,8 +479,7 @@ class NotificationSchedulerService {
           body: 'جلسة مذاكرة ${task.subjectName ?? task.title} بعد 15 دقيقة',
           scheduledTime: beforeTime,
           category: NotificationCategory.tasks,
-          payload:
-              jsonEncode({'type': 'study_before', 'sessionId': sessionId}),
+          payload: jsonEncode({'type': 'study_before', 'sessionId': sessionId}),
           vibrate: settings.vibrate,
           sound: settings.sound,
         );
@@ -332,8 +511,9 @@ class NotificationSchedulerService {
         final actualDurationMinutes =
             task.durationMinutes ?? (slotDuration > 0 ? slotDuration : 60);
 
-        final followupTime =
-            startTime.add(Duration(minutes: actualDurationMinutes + 10));
+        final followupTime = startTime.add(
+          Duration(minutes: actualDurationMinutes + 10),
+        );
         if (followupTime.isAfter(DateTime.now())) {
           await NotificationService.instance.scheduleAt(
             id: NotificationIdHelper.toInt(followupId),
@@ -341,8 +521,10 @@ class NotificationSchedulerService {
             body: 'لم تكمل جلسة مذاكرة ${task.subjectName ?? task.title} بعد',
             scheduledTime: followupTime,
             category: NotificationCategory.tasks,
-            payload: jsonEncode(
-                {'type': 'study_followup', 'sessionId': sessionId}),
+            payload: jsonEncode({
+              'type': 'study_followup',
+              'sessionId': sessionId,
+            }),
             vibrate: false,
             sound: false,
           );
@@ -350,6 +532,39 @@ class NotificationSchedulerService {
         }
       }
     }
+  }
+
+  static Future<void> sendStudyPlanReminderNotification({
+    required NotificationSettings settings,
+  }) async {
+    if (!settings.isEnabled || !settings.taskReminders) return;
+
+    const notifId = 'study_plan_weekly_reminder';
+
+    // مفتاح الأسبوع الحالي — يضمن إرسال التذكير مرة واحدة فقط في كل أسبوع
+    final weekSuffix = _currentWeekKey();
+    final weeklyNotifId = '${notifId}_$weekSuffix';
+
+    // deduplication — لا نُرسل أكثر من مرة في نفس الأسبوع
+    final box = await Hive.openBox<dynamic>(kScheduledNotificationsBox);
+    final scheduledIds = Set<String>.from(
+      box.get('scheduledIds', defaultValue: <String>[]) as List,
+    );
+    if (scheduledIds.contains(weeklyNotifId)) return;
+
+    await NotificationService.instance.showNow(
+      id: NotificationIdHelper.toInt(notifId),
+      title: '📚 لم تُولَّد خطة المذاكرة بعد',
+      body: 'ابدأ أسبوعك بخطة ذكية — افتح الجدول الذكي الآن',
+      category: NotificationCategory.tasks,
+      payload: jsonEncode({'type': 'study_plan_reminder'}),
+      vibrate: settings.vibrate,
+      sound: settings.sound,
+    );
+
+    scheduledIds.add(weeklyNotifId);
+    await box.put('scheduledIds', scheduledIds.toList());
+    debugPrint('[NotifScheduler] Study plan reminder sent');
   }
 
   // ── Course Reminder ───────────────────────────────────────────────────────
@@ -361,7 +576,7 @@ class NotificationSchedulerService {
   ) async {
     if (task.courseId == null) return;
 
-    final courseId   = task.courseId!;
+    final courseId = task.courseId!;
     final reminderId = 'course_${courseId}_reminder';
     if (scheduledIds.contains(reminderId)) return;
 
@@ -429,8 +644,10 @@ class NotificationSchedulerService {
   }) async {
     if (!settings.isEnabled || !settings.motivational) return;
 
-    final today       = DateTime.now();
-    final todayAppDay = NotificationSettings.dateTimeWeekdayToAppDay(today.weekday);
+    final today = DateTime.now();
+    final todayAppDay = NotificationSettings.dateTimeWeekdayToAppDay(
+      today.weekday,
+    );
 
     // فتح box مرة واحدة وSet مشترك لكل الإشعارات
     final box = await Hive.openBox<dynamic>(kScheduledNotificationsBox);
@@ -483,12 +700,13 @@ class NotificationSchedulerService {
     // ─ تذكير نهاية اليوم (11:00 PM) ─────────────────────────────────────
     final endOfDayId = 'end_of_day_reminder';
     if (!scheduledIds.contains(endOfDayId)) {
+      // الجدولة الساعة 11:00 PM — الـ title يعكس الوقت الفعلي
       final endOfDay = DateTime(today.year, today.month, today.day, 23, 0);
       if (endOfDay.isAfter(DateTime.now())) {
         await NotificationService.instance.scheduleAt(
           id: NotificationIdHelper.toInt(endOfDayId),
-          title: '⚠️ نهاية اليوم',
-          body: 'باقي ساعة على نهاية اليوم، هل أكملت مهامك؟',
+          title: '⚠️ تذكير نهاية اليوم',
+          body: 'اليوم يوشك على الانتهاء، هل أكملت مهامك؟',
           scheduledTime: endOfDay,
           category: NotificationCategory.motivational,
           vibrate: false,
@@ -515,8 +733,10 @@ class NotificationSchedulerService {
       body:
           'تهانينا! فتحت إنجاز "${achievement.titleAr}" — +${achievement.pointsReward} نقطة',
       category: NotificationCategory.achievements,
-      payload:
-          jsonEncode({'type': 'achievement', 'achievementId': achievement.id}),
+      payload: jsonEncode({
+        'type': 'achievement',
+        'achievementId': achievement.id,
+      }),
       vibrate: settings.vibrate,
       sound: settings.sound,
     );
@@ -574,7 +794,9 @@ class NotificationSchedulerService {
     final morningId = 'summary_morning';
     if (!scheduledIds.contains(morningId)) {
       final morningTime = DateTime(
-        today.year, today.month, today.day,
+        today.year,
+        today.month,
+        today.day,
         settings.morningDigestTime.hour,
         settings.morningDigestTime.minute,
       );
@@ -597,7 +819,9 @@ class NotificationSchedulerService {
     final eveningId = 'summary_evening';
     if (!scheduledIds.contains(eveningId)) {
       final eveningTime = DateTime(
-        today.year, today.month, today.day,
+        today.year,
+        today.month,
+        today.day,
         settings.eveningDigestTime.hour,
         settings.eveningDigestTime.minute,
       );
@@ -738,10 +962,25 @@ class NotificationSchedulerService {
   }
 
   static Future<void> cancelCustomTaskReminder(String taskId) async {
-    final id = 'custom_${taskId}_reminder';
-    await NotificationService.instance.cancel(NotificationIdHelper.toInt(id));
-    await _removeFromScheduledIds(id);
-    debugPrint('[NotifScheduler] Cancelled custom task: $id');
+    try {
+      // إلغاء الإشعارات الثلاثة
+      final ids = {
+        'custom_${taskId}_day_before',
+        'custom_${taskId}_one_hour',
+        'custom_${taskId}_at_time',
+      };
+
+      for (final id in ids) {
+        await NotificationService.instance.cancel(
+          NotificationIdHelper.toInt(id),
+        );
+      }
+
+      await _removeMultipleFromScheduledIds(ids);
+      debugPrint('[NotifScheduler] Custom task reminders cancelled: $taskId');
+    } catch (e) {
+      debugPrint('[NotifScheduler] cancelCustomTaskReminder error: $e');
+    }
   }
 
   /// إعادة جدولة كاملة (عند تغيير الإعدادات أو الجدول)
@@ -780,18 +1019,19 @@ class NotificationSchedulerService {
   }) async {
     final pendingNotifications =
         await NotificationService.instance.getPendingNotifications();
-    final courseInactiveIds = pendingNotifications
-        .where((n) {
-          try {
-            final payload =
-                jsonDecode(n.payload ?? '{}') as Map<String, dynamic>;
-            return payload['type'] == 'course_inactive';
-          } catch (_) {
-            return false;
-          }
-        })
-        .map((n) => n.id)
-        .toList();
+    final courseInactiveIds =
+        pendingNotifications
+            .where((n) {
+              try {
+                final payload =
+                    jsonDecode(n.payload ?? '{}') as Map<String, dynamic>;
+                return payload['type'] == 'course_inactive';
+              } catch (_) {
+                return false;
+              }
+            })
+            .map((n) => n.id)
+            .toList();
 
     for (final id in courseInactiveIds) {
       await NotificationService.instance.cancel(id);
@@ -845,12 +1085,12 @@ class NotificationSchedulerService {
 
     const reminders = [
       (days: 14, label: 'بعد أسبوعين'),
-      (days: 7,  label: 'بعد أسبوع'),
-      (days: 1,  label: 'غداً'),
+      (days: 7, label: 'بعد أسبوع'),
+      (days: 1, label: 'غداً'),
     ];
 
     for (final r in reminders) {
-      final notifId   = 'exam_${examId}_${r.days}d';
+      final notifId = 'exam_${examId}_${r.days}d';
       final notifTime = examDate.subtract(Duration(days: r.days));
 
       if (scheduledIds.contains(notifId)) continue;
@@ -859,7 +1099,8 @@ class NotificationSchedulerService {
       await NotificationService.instance.scheduleAt(
         id: NotificationIdHelper.toInt(notifId),
         title: '📝 تذكير امتحان — $subjectName',
-        body: 'امتحان $examTypeLabel في $subjectName ${r.label}! '
+        body:
+            'امتحان $examTypeLabel في $subjectName ${r.label}! '
             'الموعد: ${_timeLabel(examDate)} بتاريخ '
             '${examDate.day}/${examDate.month}',
         scheduledTime: notifTime,
@@ -869,7 +1110,9 @@ class NotificationSchedulerService {
         sound: settings.sound,
       );
       scheduledIds.add(notifId);
-      debugPrint('[NotifScheduler] Exam reminder scheduled: $notifId at $notifTime');
+      debugPrint(
+        '[NotifScheduler] Exam reminder scheduled: $notifId at $notifTime',
+      );
     }
 
     await box.put('scheduledIds', scheduledIds.toList());
@@ -896,13 +1139,16 @@ class NotificationSchedulerService {
   /// مما يعني N فتح + N قراءة + N كتابة لـ Hive box.
   /// الآن: فتح واحد → تحديث Set في الذاكرة → كتابة واحدة في النهاية.
   static Future<void> scheduleAllExamReminders({
-    required List<({
-      String examId,
-      String subjectName,
-      String examTypeLabel,
-      DateTime examDate,
-      bool completed,
-    })> exams,
+    required List<
+      ({
+        String examId,
+        String subjectName,
+        String examTypeLabel,
+        DateTime examDate,
+        bool completed,
+      })
+    >
+    exams,
     required NotificationSettings settings,
   }) async {
     if (!settings.isEnabled || !settings.taskReminders) return;
@@ -916,8 +1162,8 @@ class NotificationSchedulerService {
 
     const reminders = [
       (days: 14, label: 'بعد أسبوعين'),
-      (days: 7,  label: 'بعد أسبوع'),
-      (days: 1,  label: 'غداً'),
+      (days: 7, label: 'بعد أسبوع'),
+      (days: 1, label: 'غداً'),
     ];
 
     for (final exam in exams) {
@@ -925,7 +1171,7 @@ class NotificationSchedulerService {
       if (exam.examDate.isBefore(DateTime.now())) continue;
 
       for (final r in reminders) {
-        final notifId   = 'exam_${exam.examId}_${r.days}d';
+        final notifId = 'exam_${exam.examId}_${r.days}d';
         final notifTime = exam.examDate.subtract(Duration(days: r.days));
 
         if (scheduledIds.contains(notifId)) continue;
@@ -934,7 +1180,8 @@ class NotificationSchedulerService {
         await NotificationService.instance.scheduleAt(
           id: NotificationIdHelper.toInt(notifId),
           title: '📝 تذكير امتحان — ${exam.subjectName}',
-          body: 'امتحان ${exam.examTypeLabel} في ${exam.subjectName} ${r.label}! '
+          body:
+              'امتحان ${exam.examTypeLabel} في ${exam.subjectName} ${r.label}! '
               'الموعد: ${_timeLabel(exam.examDate)} بتاريخ '
               '${exam.examDate.day}/${exam.examDate.month}',
           scheduledTime: notifTime,
@@ -944,7 +1191,9 @@ class NotificationSchedulerService {
           sound: settings.sound,
         );
         scheduledIds.add(notifId);
-        debugPrint('[NotifScheduler] Exam reminder scheduled: $notifId at $notifTime');
+        debugPrint(
+          '[NotifScheduler] Exam reminder scheduled: $notifId at $notifTime',
+        );
       }
     }
 
@@ -971,7 +1220,9 @@ class NotificationSchedulerService {
       vibrate: settings.vibrate,
       sound: settings.sound,
     );
-    debugPrint('[NotifScheduler] Semester end notification sent: $semesterLabel');
+    debugPrint(
+      '[NotifScheduler] Semester end notification sent: $semesterLabel',
+    );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1027,7 +1278,9 @@ class NotificationSchedulerService {
 
     scheduledSet.add(notifId);
     await box.put('scheduledIds', scheduledSet.toList());
-    debugPrint('[NotifScheduler] Pending assessment notification sent: $skillId');
+    debugPrint(
+      '[NotifScheduler] Pending assessment notification sent: $skillId',
+    );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1048,7 +1301,8 @@ class NotificationSchedulerService {
   }
 
   static Future<void> _removeMultipleFromScheduledIds(
-      Set<String> toRemove) async {
+    Set<String> toRemove,
+  ) async {
     try {
       final box = await Hive.openBox<dynamic>(kScheduledNotificationsBox);
       final ids = Set<String>.from(
@@ -1062,7 +1316,8 @@ class NotificationSchedulerService {
   }
 
   static Future<void> _removeSmartAndCourseInactiveIds(
-      Set<String> smartIds) async {
+    Set<String> smartIds,
+  ) async {
     try {
       final box = await Hive.openBox<dynamic>(kScheduledNotificationsBox);
       final ids = Set<String>.from(
@@ -1073,8 +1328,9 @@ class NotificationSchedulerService {
       // [FIX #8] إزالة course_inactive IDs بـ pattern آمن:
       // يشترط البداية بـ 'course_' والنهاية بـ '_inactive' معاً
       // لمنع حذف خاطئ لـ courseId يحتوي على '_inactive' في اسمه
-      ids.removeWhere((id) =>
-          id.startsWith('course_') && id.endsWith('_inactive'));
+      ids.removeWhere(
+        (id) => id.startsWith('course_') && id.endsWith('_inactive'),
+      );
       await box.put('scheduledIds', ids.toList());
     } catch (e) {
       debugPrint('[NotifScheduler] _removeSmartAndCourseInactiveIds error: $e');
@@ -1096,15 +1352,23 @@ class NotificationSchedulerService {
 
   /// الوقت المفضل التالي بناءً على الإعدادات
   static DateTime? _nextPreferredTime(NotificationSettings settings) {
-    final now   = DateTime.now();
+    final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
     final candidates = <DateTime>[];
 
-    if (settings.preferMorning)   candidates.add(today.add(const Duration(hours: 9)));
-    if (settings.preferAfternoon) candidates.add(today.add(const Duration(hours: 13)));
-    if (settings.preferEvening)   candidates.add(today.add(const Duration(hours: 19)));
-    if (settings.preferNight)     candidates.add(today.add(const Duration(hours: 22)));
+    if (settings.preferMorning) {
+      candidates.add(today.add(const Duration(hours: 9)));
+    }
+    if (settings.preferAfternoon) {
+      candidates.add(today.add(const Duration(hours: 13)));
+    }
+    if (settings.preferEvening) {
+      candidates.add(today.add(const Duration(hours: 19)));
+    }
+    if (settings.preferNight) {
+      candidates.add(today.add(const Duration(hours: 22)));
+    }
 
     final future = candidates.where((t) => t.isAfter(now)).toList()..sort();
     return future.isEmpty ? null : future.first;
@@ -1118,8 +1382,9 @@ class NotificationSchedulerService {
     final now = DateTime.now();
     for (var i = 0; i <= 7; i++) {
       final candidate = now.add(Duration(days: i));
-      final appDay =
-          NotificationSettings.dateTimeWeekdayToAppDay(candidate.weekday);
+      final appDay = NotificationSettings.dateTimeWeekdayToAppDay(
+        candidate.weekday,
+      );
       if (appDay == targetWeekdayIndex) {
         final dt = DateTime(
           candidate.year,
@@ -1136,9 +1401,12 @@ class NotificationSchedulerService {
 
   /// حساب الوقت حتى منتصف الليل
   static Duration _timeUntilMidnight() {
-    final now      = DateTime.now();
-    final midnight = DateTime(now.year, now.month, now.day)
-        .add(const Duration(days: 1));
+    final now = DateTime.now();
+    final midnight = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).add(const Duration(days: 1));
     return midnight.difference(now) + const Duration(minutes: 2);
   }
 
@@ -1147,5 +1415,57 @@ class NotificationSchedulerService {
     final h = dt.hour.toString().padLeft(2, '0');
     final m = dt.minute.toString().padLeft(2, '0');
     return '$h:$m';
+  }
+
+  /// حساب تاريخ التكرار القادم بناءً على النوع والوقت الحالي
+  static DateTime? _nextRecurringDate({
+    required DateTime original,
+    required RecurrenceType recurrenceType,
+    required DateTime now,
+  }) {
+    final timeOfDay = TimeOfDay(
+      hour: original.hour,
+      minute: original.minute,
+    );
+
+    switch (recurrenceType) {
+      case RecurrenceType.daily:
+        // اليوم في نفس الوقت — إذا فات نأخذ الغد
+        final todayOccurrence = DateTime(
+          now.year, now.month, now.day,
+          timeOfDay.hour, timeOfDay.minute,
+        );
+        if (todayOccurrence.isAfter(now)) return todayOccurrence;
+        return todayOccurrence.add(const Duration(days: 1));
+
+      case RecurrenceType.weekly:
+        // نفس اليوم من الأسبوع القادم
+        final targetWeekday = original.weekday;
+        for (var i = 0; i <= 7; i++) {
+          final candidate = DateTime(
+            now.year, now.month, now.day + i,
+            timeOfDay.hour, timeOfDay.minute,
+          );
+          if (candidate.weekday == targetWeekday &&
+              candidate.isAfter(now)) {
+            return candidate;
+          }
+        }
+        return null;
+    }
+  }
+
+  /// مفتاح التاريخ بصيغة 'yyyyMMdd' — لتمييز إشعارات نفس المهمة في أيام مختلفة
+  static String _dateKey(DateTime dt) =>
+      '${dt.year}${dt.month.toString().padLeft(2, '0')}${dt.day.toString().padLeft(2, '0')}';
+
+  /// مفتاح الأسبوع الحالي بصيغة 'yyyy-Www' — يتغير تلقائياً كل أسبوع
+  static String _currentWeekKey() {
+    final now = DateTime.now();
+    final startOfYear = DateTime(now.year, 1, 1);
+    final weekNumber =
+        ((now.difference(startOfYear).inDays + startOfYear.weekday) / 7)
+            .ceil();
+    return '${now.year}-W${weekNumber.toString().padLeft(2, '0')}';
   }
 }

@@ -31,6 +31,7 @@ class GamificationController extends ChangeNotifier {
   List<Achievement> get newlyUnlocked => List.unmodifiable(_newlyUnlocked);
   bool              get isLoading     => _isLoading;
   String?           get error         => _error;
+  bool              get isInitialized => _initialized;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 

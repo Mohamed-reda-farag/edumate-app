@@ -80,8 +80,10 @@ class LectureTaskCard extends StatelessWidget {
                 Icon(Icons.access_time,
                     size: 16, color: colorScheme.onSurfaceVariant),
                 const SizedBox(width: 4),
+                // [FIX] formattedTimeSlot بدل timeSlot الخام —
+                // يُعرض "08:00 - 10:00" بدل "8:00-10:00"
                 Text(
-                  task.timeSlot ?? '',
+                  task.formattedTimeSlot,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
@@ -234,7 +236,8 @@ class StudySessionTaskCard extends StatelessWidget {
                 Icon(Icons.access_time,
                     size: 16, color: colorScheme.onSurfaceVariant),
                 const SizedBox(width: 4),
-                Text(task.timeSlot ?? '',
+                // [FIX] formattedTimeSlot بدل timeSlot الخام
+                Text(task.formattedTimeSlot,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant)),
                 const SizedBox(width: 12),
@@ -420,13 +423,13 @@ class CustomTaskCard extends StatelessWidget {
     super.key,
     required this.task,
     required this.onDetails,
-    required this.onComplete,
+    this.onComplete,
     required this.onDelete,
   });
 
   final TaskModel task;
   final VoidCallback onDetails;
-  final VoidCallback onComplete;
+  final VoidCallback? onComplete;
   final VoidCallback onDelete;
 
   @override
@@ -473,8 +476,16 @@ class CustomTaskCard extends StatelessWidget {
                   ),
                 ),
                 if (task.isRecurring)
-                  Icon(Icons.repeat,
-                      size: 16, color: colorScheme.onSurfaceVariant),
+                  Tooltip(
+                    message: task.recurrenceType == RecurrenceType.weekly
+                        ? 'أسبوعي'
+                        : 'يومي',
+                    child: Icon(
+                      Icons.repeat,
+                      size: 16,
+                      color: colorScheme.primary,
+                    ),
+                  ),
               ],
             ),
             if (task.description != null && task.description!.isNotEmpty) ...[
@@ -506,8 +517,9 @@ class CustomTaskCard extends StatelessWidget {
                     Icon(Icons.access_time,
                         size: 14, color: colorScheme.onSurfaceVariant),
                     const SizedBox(width: 4),
+                    // [FIX] formattedTimeSlot بدل timeSlot الخام
                     Text(
-                      task.timeSlot!,
+                      task.formattedTimeSlot,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -525,7 +537,7 @@ class CustomTaskCard extends StatelessWidget {
                   label: const Text('تفاصيل'),
                 ),
                 const Spacer(),
-                if (!isCompleted)
+                if (!isCompleted && onComplete != null)
                   IconButton(
                     onPressed: onComplete,
                     icon: const Icon(Icons.check_circle_outline),

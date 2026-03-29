@@ -57,36 +57,35 @@ class GamificationService {
     GamificationData current,
     StudySession session,
   ) {
-    int delta = 0;
+    const int kMaxPoints = 999999999;
 
     switch (session.status) {
       case SessionStatus.completed:
         final rate = session.completionRate ?? 0.0;
-        // completionRate == null تعني "أُكملت بدون تسجيل نسبة" → 0 نقاط
-        // هذا قرار متعمد لتشجيع تسجيل النسبة الفعلية
+        int delta = 0;
         if (rate >= 0.8) {
           delta = 15;
         } else if (rate >= 0.5) {
           delta = 8;
         }
-        break;
+        // تحديث الـ Streak عند إكمال جلسة مذاكرة
+        final withStreak = _updateStreak(current, session.scheduledDate);
+        return withStreak.copyWith(
+          totalPoints:  (withStreak.totalPoints  + delta).clamp(0, kMaxPoints),
+          weeklyPoints: (withStreak.weeklyPoints + delta).clamp(0, kMaxPoints),
+        );
 
       case SessionStatus.skipped:
-        delta = -5;
-        break;
+        final newTotal  = (current.totalPoints  - 5).clamp(0, kMaxPoints);
+        final newWeekly = (current.weeklyPoints - 5).clamp(0, kMaxPoints);
+        return current.copyWith(
+          totalPoints:  newTotal,
+          weeklyPoints: newWeekly,
+        );
 
       case SessionStatus.planned:
-        break;
+        return current;
     }
-
-    const int kMaxPoints = 999999999;
-    final newTotal  = (current.totalPoints  + delta).clamp(0, kMaxPoints);
-    final newWeekly = (current.weeklyPoints + delta).clamp(0, kMaxPoints);
-
-    return current.copyWith(
-      totalPoints:  newTotal,
-      weeklyPoints: newWeekly,
-    );
   }
 
   // ══════════════════════════════════════════════════════════════════════════

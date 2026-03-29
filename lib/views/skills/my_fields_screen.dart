@@ -5,14 +5,10 @@ import '../../controllers/global_learning_state.dart';
 import '../../models/field_model.dart';
 import '../../utils/skill_utils.dart';
 
-
 class MyFieldsScreen extends StatefulWidget {
   final bool embedded;
-  
-  const MyFieldsScreen({
-    super.key,
-    this.embedded = false,
-  });
+
+  const MyFieldsScreen({super.key, this.embedded = false});
 
   @override
   State<MyFieldsScreen> createState() => _MyFieldsScreenState();
@@ -53,6 +49,11 @@ class _MyFieldsScreenState extends State<MyFieldsScreen>
     final state = context.read<GlobalLearningState>();
     final selectedFields = state.selectedFields;
     if (selectedFields.isNotEmpty) {
+      // نُعيد تحميل فقط المجالات التي لم تُحمَّل بعد أو نريد تحديثها
+      // clearFieldCache أولاً لضمان جلب بيانات جديدة من Firestore
+      for (final fieldId in selectedFields) {
+        await state.clearFieldCache(fieldId);
+      }
       await state.loadFieldsBatch(selectedFields);
     }
   }
@@ -69,7 +70,7 @@ class _MyFieldsScreenState extends State<MyFieldsScreen>
       // الوضع المدمج - محتوى فقط بدون Scaffold
       return _buildContent();
     }
-    
+
     // الوضع المستقل - مع Scaffold كامل
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -90,11 +91,8 @@ class _MyFieldsScreenState extends State<MyFieldsScreen>
             slivers: [
               if (!widget.embedded) _buildSliverAppBar(context, state),
               if (state.isLoadingStaticData)
-                const SliverFillRemaining(
-                  child: _ShimmerFieldsList(),
-                )
-              else if (state.lastError != null &&
-                  state.selectedFields.isEmpty)
+                const SliverFillRemaining(child: _ShimmerFieldsList())
+              else if (state.lastError != null && state.selectedFields.isEmpty)
                 SliverFillRemaining(
                   child: _ErrorState(
                     error: state.lastError!,
@@ -102,12 +100,15 @@ class _MyFieldsScreenState extends State<MyFieldsScreen>
                   ),
                 )
               else if (state.selectedFields.isEmpty)
-                const SliverFillRemaining(
-                  child: _EmptyFieldsState(),
-                )
+                const SliverFillRemaining(child: _EmptyFieldsState())
               else ...[
                 SliverPadding(
-                  padding: EdgeInsets.fromLTRB(16, widget.embedded ? 24 : 16, 16, 8),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    widget.embedded ? 24 : 16,
+                    16,
+                    8,
+                  ),
                   sliver: SliverToBoxAdapter(
                     child: FadeTransition(
                       opacity: _fadeAnimation,
@@ -120,41 +121,38 @@ class _MyFieldsScreenState extends State<MyFieldsScreen>
                   sliver: SliverToBoxAdapter(
                     child: Text(
                       'مجالاتي',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                   sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final fieldId = state.selectedFields[index];
-                        final field = state.getFieldData(fieldId);
-                        final isPrimary = fieldId == state.primaryField;
-                        return FadeTransition(
-                          opacity: _fadeAnimation,
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: field == null
-                                ? _FieldCardShimmer()
-                                : _FieldCard(
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      final fieldId = state.selectedFields[index];
+                      final field = state.getFieldData(fieldId);
+                      final isPrimary = fieldId == state.primaryField;
+                      return FadeTransition(
+                        opacity: _fadeAnimation,
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child:
+                              field == null
+                                  ? _FieldCardShimmer()
+                                  : _FieldCard(
                                     field: field,
                                     state: state,
                                     isPrimary: isPrimary,
-                                    onTap: () => context.push(
-                                        '/field-details/$fieldId'),
+                                    onTap:
+                                        () => context.push(
+                                          '/field-details/$fieldId',
+                                        ),
                                   ),
-                          ),
-                        );
-                      },
-                      childCount: state.selectedFields.length,
-                    ),
+                        ),
+                      );
+                    }, childCount: state.selectedFields.length),
                   ),
                 ),
               ],
@@ -166,7 +164,9 @@ class _MyFieldsScreenState extends State<MyFieldsScreen>
   }
 
   SliverAppBar _buildSliverAppBar(
-      BuildContext context, GlobalLearningState state) {
+    BuildContext context,
+    GlobalLearningState state,
+  ) {
     return SliverAppBar(
       expandedHeight: 140,
       floating: false,
@@ -200,10 +200,7 @@ class _MyFieldsScreenState extends State<MyFieldsScreen>
                   const SizedBox(height: 4),
                   Text(
                     'تابع تقدمك في ${state.selectedFields.length} مجال',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.white70,
-                    ),
+                    style: const TextStyle(fontSize: 14, color: Colors.white70),
                   ),
                 ],
               ),
@@ -249,7 +246,7 @@ class _OverallProgressCard extends StatelessWidget {
             color: const Color(0xFF6C63FF).withOpacity(0.3),
             blurRadius: 12,
             offset: const Offset(0, 4),
-          )
+          ),
         ],
       ),
       child: Column(
@@ -329,10 +326,7 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-            ),
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
       ),
@@ -356,7 +350,7 @@ class _FieldCard extends StatelessWidget {
     required this.onTap,
   });
 
-@override
+  @override
   Widget build(BuildContext context) {
     final fieldProgress = state.userProfile?.fieldProgress[field.id];
     final progressPct = fieldProgress?.overallProgress ?? 0;
@@ -386,9 +380,10 @@ class _FieldCard extends StatelessWidget {
         }
 
         // عدد الكورسات النشطة في هذه المهارة
-        activeCoursesCount += skillProgress.coursesProgress.values
-            .where((c) => !c.isCompleted)
-            .length;
+        activeCoursesCount +=
+            skillProgress.coursesProgress.values
+                .where((c) => !c.isCompleted)
+                .length;
       }
     }
 
@@ -402,9 +397,10 @@ class _FieldCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(16),
-            border: isPrimary
-                ? Border.all(color: const Color(0xFF6C63FF), width: 2)
-                : null,
+            border:
+                isPrimary
+                    ? Border.all(color: const Color(0xFF6C63FF), width: 2)
+                    : null,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.05),
@@ -423,9 +419,10 @@ class _FieldCard extends StatelessWidget {
                     height: 48,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: isPrimary
-                            ? [Color(0xFF6C63FF), Color(0xFF4ECDC4)]
-                            : [Color(0xFF4ECDC4), Color(0xFF95E1D3)],
+                        colors:
+                            isPrimary
+                                ? [Color(0xFF6C63FF), Color(0xFF4ECDC4)]
+                                : [Color(0xFF4ECDC4), Color(0xFF95E1D3)],
                       ),
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -449,16 +446,21 @@ class _FieldCard extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).colorScheme.onSurface,
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface,
                                 ),
                               ),
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
-                                color: isPrimary
-                                    ? const Color(0xFF6C63FF)
-                                    : const Color(0xFF4ECDC4),
+                                color:
+                                    isPrimary
+                                        ? const Color(0xFF6C63FF)
+                                        : const Color(0xFF4ECDC4),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
@@ -477,7 +479,8 @@ class _FieldCard extends StatelessWidget {
                           field.description,
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey[600],
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -490,15 +493,24 @@ class _FieldCard extends StatelessWidget {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Icon(Icons.emoji_events, size: 14,
-                      color: isPrimary ? const Color(0xFF6C63FF) : const Color(0xFF4ECDC4)),
+                  Icon(
+                    Icons.emoji_events,
+                    size: 14,
+                    color:
+                        isPrimary
+                            ? const Color(0xFF6C63FF)
+                            : const Color(0xFF4ECDC4),
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     'المستوى: ${SkillUtils.levelLabel(currentLevel)}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: isPrimary ? const Color(0xFF6C63FF) : const Color(0xFF4ECDC4),
+                      color:
+                          isPrimary
+                              ? const Color(0xFF6C63FF)
+                              : const Color(0xFF4ECDC4),
                     ),
                   ),
                 ],
@@ -547,9 +559,10 @@ class _FieldCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: isPrimary
-                              ? const Color(0xFF6C63FF)
-                              : const Color(0xFF4ECDC4),
+                          color:
+                              isPrimary
+                                  ? const Color(0xFF6C63FF)
+                                  : const Color(0xFF4ECDC4),
                         ),
                       ),
                     ],
@@ -559,7 +572,8 @@ class _FieldCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(10),
                     child: LinearProgressIndicator(
                       value: progressPct / 100,
-                      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      backgroundColor:
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
                       valueColor: AlwaysStoppedAnimation(
                         isPrimary
                             ? const Color(0xFF6C63FF)
@@ -577,9 +591,10 @@ class _FieldCard extends StatelessWidget {
                   Text(
                     'عرض التفاصيل',
                     style: TextStyle(
-                      color: isPrimary
-                          ? const Color(0xFF6C63FF)
-                          : const Color(0xFF4ECDC4),
+                      color:
+                          isPrimary
+                              ? const Color(0xFF6C63FF)
+                              : const Color(0xFF4ECDC4),
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
@@ -588,9 +603,10 @@ class _FieldCard extends StatelessWidget {
                   Icon(
                     Icons.arrow_back_ios,
                     size: 12,
-                    color: isPrimary
-                        ? const Color(0xFF6C63FF)
-                        : const Color(0xFF4ECDC4),
+                    color:
+                        isPrimary
+                            ? const Color(0xFF6C63FF)
+                            : const Color(0xFF4ECDC4),
                   ),
                 ],
               ),
@@ -646,10 +662,11 @@ class _ShimmerFieldsList extends StatelessWidget {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: 2,
-      itemBuilder: (_, __) => Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: _FieldCardShimmer(),
-      ),
+      itemBuilder:
+          (_, __) => Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _FieldCardShimmer(),
+          ),
     );
   }
 }
@@ -668,8 +685,9 @@ class _FieldCardShimmerState extends State<_FieldCardShimmer>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1200))
-      ..repeat();
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
     _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
   }
 
@@ -682,26 +700,25 @@ class _FieldCardShimmerState extends State<_FieldCardShimmer>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final shimmerBase = isDark ? const Color(0xFF2A2A2A) : const Color(0xFFE8E8E8);
-    final shimmerHighlight = isDark ? const Color(0xFF3A3A3A) : const Color(0xFFF5F5F5);
+    final shimmerBase =
+        isDark ? const Color(0xFF2A2A2A) : const Color(0xFFE8E8E8);
+    final shimmerHighlight =
+        isDark ? const Color(0xFF3A3A3A) : const Color(0xFFF5F5F5);
 
     return AnimatedBuilder(
       animation: _anim,
-      builder: (_, __) => Container(
-        height: 200,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            begin: Alignment(-1 + _anim.value * 2, 0),
-            end: Alignment(1 + _anim.value * 2, 0),
-            colors: [
-              shimmerBase,
-              shimmerHighlight,
-              shimmerBase,
-            ],
+      builder:
+          (_, __) => Container(
+            height: 200,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                begin: Alignment(-1 + _anim.value * 2, 0),
+                end: Alignment(1 + _anim.value * 2, 0),
+                colors: [shimmerBase, shimmerHighlight, shimmerBase],
+              ),
+            ),
           ),
-        ),
-      ),
     );
   }
 }
@@ -736,10 +753,7 @@ class _EmptyFieldsState extends StatelessWidget {
             const SizedBox(height: 24),
             const Text(
               'لم تختر مجالاً بعد',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
@@ -747,7 +761,8 @@ class _EmptyFieldsState extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey[600],
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+
                 height: 1.5,
               ),
             ),
@@ -759,8 +774,10 @@ class _EmptyFieldsState extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF6C63FF),
                 foregroundColor: Colors.white,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -790,9 +807,7 @@ class _ErrorState extends StatelessWidget {
             const SizedBox(height: 16),
             const Text(
               'حدث خطأ',
-              style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
@@ -809,7 +824,8 @@ class _ErrorState extends StatelessWidget {
                 backgroundColor: const Color(0xFF6C63FF),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ],

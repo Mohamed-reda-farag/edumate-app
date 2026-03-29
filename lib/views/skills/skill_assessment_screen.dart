@@ -70,7 +70,7 @@ class _SkillAssessmentScreenState extends State<SkillAssessmentScreen>
   static const int _minQuestions = 8; // الحد الأدنى للأسئلة المطلوبة
   static const String _baseUrl =
       'https://generativelanguage.googleapis.com/v1beta/models'
-      '/gemini-2.0-flash:generateContent';
+      '/gemini-2.5-flash:generateContent';
 
   // ─────────────────────────────────────────────────────────────────────────
   // Lifecycle
@@ -132,22 +132,27 @@ class _SkillAssessmentScreenState extends State<SkillAssessmentScreen>
   // Gemini API
   // ─────────────────────────────────────────────────────────────────────────
 
-  Future<void> _fetchAiResponse() async {
-    setState(() {
-      _isLoading = true;
-      // رسالة الـ typing indicator
-      _messages.add(const _ChatMessage(
-        role: _MessageRole.ai,
-        text: '...',
-        isTyping: true,
-      ));
-    });
-    _scrollToBottom();
+  Future<void> _fetchAiResponse({int retryCount = 0}) async {
+    // إظهار مؤشر التحميل فقط في المحاولة الأولى
+    if (retryCount == 0) {
+      setState(() {
+        _isLoading = true;
+        _messages.add(const _ChatMessage(
+          role: _MessageRole.ai,
+          text: '...',
+          isTyping: true,
+        ));
+      });
+      _scrollToBottom();
+    }
 
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl?key=${ApiKeys.geminiApiKey}'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': ApiKeys.geminiApiKey,
+        },
         body: jsonEncode({
           'contents': _conversationHistory,
           'generationConfig': {
@@ -165,20 +170,17 @@ class _SkillAssessmentScreenState extends State<SkillAssessmentScreen>
                 as String? ??
             'لم أتمكن من توليد رد.';
 
-        // إضافة رد الـ AI إلى تاريخ المحادثة
         _conversationHistory.add({
           'role': 'model',
           'parts': [{'text': aiText}],
         });
 
-        // إزالة typing indicator وإضافة الرد الحقيقي
         setState(() {
           _messages.removeWhere((m) => m.isTyping);
           _messages.add(_ChatMessage(role: _MessageRole.ai, text: aiText));
           _isLoading = false;
         });
 
-        // فحص إذا انتهى الاختبار
         if (_isAssessmentComplete(aiText)) {
           _finalScore = _extractScore(aiText);
           _finalSummary = _extractSummary(aiText);
@@ -186,16 +188,36 @@ class _SkillAssessmentScreenState extends State<SkillAssessmentScreen>
           await Future.delayed(const Duration(milliseconds: 800));
           if (mounted) await _handleAssessmentComplete();
         } else {
-          _questionCount++;
+          if (_messages.where((m) => m.role == _MessageRole.user && !m.isTyping).isNotEmpty) {
+            _questionCount++;
+          }
         }
-      } else {
+      } 
+      else if (response.statusCode == 429) {
+        if (retryCount < 3) { // الحد الأقصى للمحاولات (3 مرات)
+          // وقت الانتظار يتضاعف: 2 ثواني، ثم 4، ثم 8
+          final int waitTime = (1 << retryCount) * 2; 
+          debugPrint('⚠️ خطأ 429: سيتم إعادة المحاولة بعد $waitTime ثوانٍ... (محاولة ${retryCount + 1})');
+          
+          await Future.delayed(Duration(seconds: waitTime));
+          
+          // إعادة استدعاء الدالة مع زيادة عداد المحاولات
+          if (mounted) {
+            return _fetchAiResponse(retryCount: retryCount + 1);
+          }
+        } else {
+          _handleApiError('عذراً، الخادم يواجه ضغطاً حالياً. يرجى الانتظار دقيقة والمحاولة مجدداً.');
+        }
+      } 
+      // معالجة باقي الأخطاء
+      else {
         _handleApiError('خطأ في الاتصال: ${response.statusCode}');
       }
     } catch (e) {
       _handleApiError('حدث خطأ: $e');
     }
 
-    _scrollToBottom();
+    if (retryCount == 0) _scrollToBottom();
   }
 
   void _handleApiError(String message) {
@@ -238,11 +260,10 @@ class _SkillAssessmentScreenState extends State<SkillAssessmentScreen>
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _handleAssessmentComplete() async {
+    if (!mounted) return;
     final state = context.read<GlobalLearningState>();
 
-    // إذا فشل استخراج النتيجة → خطأ تقني وليس cheating
     if (_finalScore < 0) {
-      if (!mounted) return;
       _showResultDialog(AssessmentOutcome.error, 0);
       return;
     }

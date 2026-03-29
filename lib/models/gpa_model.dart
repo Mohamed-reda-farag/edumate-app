@@ -1,5 +1,7 @@
 
 
+import '../views/schedule/gpa_screen.dart';
+
 class _GradeEntry {
   final String letter;
   final double point4;        // القيمة على نظام 4.0
@@ -24,6 +26,31 @@ const List<_GradeEntry> _kGradeTable = [
   _GradeEntry('D',  1.0,  2.00),
   _GradeEntry('F',  0.0,  0.00),
 ];
+
+
+// ── GradeOption للـ UI ────────────────────────────────────────────────────────
+// تُستخدم في GpaScreen لعرض قائمة التقديرات — مبنية على _kGradeTable
+class GradeOption {
+  final String letter;
+  final double points4;
+  final double points5;
+
+  const GradeOption(this.letter, this.points4, this.points5);
+
+  double points(GpaScale scale) =>
+      scale == GpaScale.scale4 ? points4 : points5;
+}
+
+  // مبنية مباشرة من _kGradeTable لضمان عدم التكرار
+  final List<GradeOption> kGrades = _kGradeTable
+      .map((e) => GradeOption(e.letter, e.point4, e.point5))
+      .toList();
+
+  GradeOption? gradeByLetter(String l) =>
+      kGrades.cast<GradeOption?>().firstWhere(
+        (g) => g?.letter == l,
+        orElse: () => null,
+      );
 
 // ── GPASubject ────────────────────────────────────────────────────────────────
 

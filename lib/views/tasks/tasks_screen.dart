@@ -318,7 +318,6 @@ class _SkillTasksTab extends StatelessWidget {
     final tasks = controller.courseTasks;
 
     if (tasks.isEmpty) {
-      // [FIX] زر "اذهب للمجالات" يعمل فعلياً عبر GoRouter
       return _EmptyState(
         emoji: '📚',
         title: 'لا توجد كورسات نشطة',
@@ -349,7 +348,6 @@ class _SkillTasksTab extends StatelessWidget {
                 task.courseId ?? '',
               );
             } else {
-              // [FIX] إخبار المستخدم بدل الصمت — البيانات لم تُحمَّل بعد
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('تعذّر فتح الكورس، حاول مجدداً')),
               );
@@ -361,7 +359,6 @@ class _SkillTasksTab extends StatelessWidget {
     );
   }
 
-  // [FIX] لا Slider لاختيار الدرس — المستخدم لا يختار رقم الدرس يدوياً.
   // نظام المجالات يتحكم بالترتيب والقفل، لذا نؤكد فقط إكمال الدرس الحالي.
   void _confirmMarkCurrentLesson(BuildContext context, TaskModel task) {
     final currentLesson = task.currentLesson ?? 1;
@@ -378,7 +375,6 @@ class _SkillTasksTab extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Handle
               Container(
                 width: 40,
                 height: 4,
@@ -388,7 +384,6 @@ class _SkillTasksTab extends StatelessWidget {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              // أيقونة
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -404,16 +399,17 @@ class _SkillTasksTab extends StatelessWidget {
               const SizedBox(height: 16),
               Text(
                 'إكمال الدرس $currentLesson من $total',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 6),
               Text(
                 task.courseTitle ?? task.title,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
@@ -437,10 +433,101 @@ class _SkillTasksTab extends StatelessWidget {
                       style: FilledButton.styleFrom(
                         backgroundColor: Colors.green,
                       ),
-                      // [FIX] await + error handling — الكود القديم لا ينتظر
-                      // ولا يعرض أي خطأ للمستخدم عند الفشل
                       onPressed: () async {
                         Navigator.pop(ctx);
+                        final learningState =
+                            context.read<GlobalLearningState>();
+                        final checkResult = learningState.checkLessonAllowed(
+                          task.fieldId ?? '',
+                          task.skillId ?? '',
+                        );
+ 
+                        if (checkResult == LessonCheckResult.dailyBlocked) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text(
+                                  'أكملت حصتك اليومية — عُد غداً لمواصلة التعلم 💪',
+                                ),
+                                backgroundColor: Colors.red.shade600,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                margin: const EdgeInsets.all(12),
+                              ),
+                            );
+                          }
+                          return;
+                        }
+ 
+                        if (checkResult == LessonCheckResult.weeklyBlocked) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text(
+                                  'أكملت أيام تعلمك هذا الأسبوع — ابدأ من جديد الأسبوع القادم 🗓️',
+                                ),
+                                backgroundColor: Colors.red.shade600,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                margin: const EdgeInsets.all(12),
+                              ),
+                            );
+                          }
+                          return;
+                        }
+
+                        // تحذيرات (لا تمنع — فقط تنبّه)
+                        if (checkResult == LessonCheckResult.dailyWarning) {
+                          learningState.markDailyWarningSent(
+                            task.fieldId ?? '',
+                            task.skillId ?? '',
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text(
+                                  'وصلت للحد اليومي — إذا تجاوزته سيُمنع التعليم لبقية اليوم ⚠️',
+                                ),
+                                backgroundColor: Colors.orange,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                margin: const EdgeInsets.all(12),
+                                duration: const Duration(seconds: 4),
+                              ),
+                            );
+                          }
+                        }
+
+                        if (checkResult == LessonCheckResult.weeklyWarning) {
+                          learningState.markWeeklyWarningSent(
+                            task.fieldId ?? '',
+                            task.skillId ?? '',
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text(
+                                  'وصلت للحد الأسبوعي — إذا تجاوزته سيُمنع التعليم حتى الأسبوع القادم ⚠️',
+                                ),
+                                backgroundColor: Colors.orange,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                margin: const EdgeInsets.all(12),
+                                duration: const Duration(seconds: 4),
+                              ),
+                            );
+                          }
+                        }
+
+                        // تنفيذ التعليم
                         try {
                           final tc = context.read<TaskController>();
                           await tc.markCurrentLesson(taskId: task.id);
@@ -515,22 +602,23 @@ class _CustomTasksTab extends StatelessWidget {
                   builder: (_) => TaskDetailsScreen(task: task),
                 ),
               ),
-          // [FIX] await + error handling — الكود القديم لا ينتظر الإكمال
-          // ولا يعرض أي خطأ للمستخدم عند الفشل
-          onComplete: () async {
-            try {
-              await controller.completeCustomTask(task.id);
-            } catch (e) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('فشل إكمال المهمة: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            }
-          },
+          // المهمة الدورية لا تُكتمَل — نُخفي الزر بتمرير null
+          onComplete: task.isRecurring
+              ? null
+              : () async {
+                  try {
+                    await controller.completeCustomTask(task.id);
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('فشل إكمال المهمة: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
           onDelete: () => _confirmDelete(context, task.id),
         );
       },
@@ -1007,14 +1095,14 @@ class _StatusChip extends StatelessWidget {
           color: selected ? color.withOpacity(0.15) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: selected ? color : Colors.grey.shade300,
+            color: selected ? color : Theme.of(context).colorScheme.outlineVariant,
             width: selected ? 2 : 1,
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? color : Colors.grey.shade600,
+            color: selected ? color : Theme.of(context).colorScheme.onSurfaceVariant,
             fontWeight: selected ? FontWeight.bold : FontWeight.normal,
             fontSize: 13,
           ),

@@ -240,14 +240,14 @@ class TaskSyncService {
     DateTime today,
     List<ScheduleTimeSlot> timeSlots,
   ) async {
-    final tasks   = <TaskModel>[];
+    final tasks    = <TaskModel>[];
     final schedule = _scheduleController.schedule;
     final todayCol = _todayColumnIndex(today);
-
+ 
     // ─ 1. محاضرات اليوم ────────────────────────────────────────────────────
     for (final entry in schedule) {
       if (entry.col != todayCol) continue;
-
+ 
       if (entry.row < 0 || entry.row >= timeSlots.length) {
         debugPrint(
           '[TaskSyncService] row ${entry.row} out of range '
@@ -255,15 +255,15 @@ class TaskSyncService {
         );
         continue;
       }
-
+ 
       final slot   = timeSlots[entry.row];
       final taskId =
           'lec_${entry.id}_${today.toIso8601String().substring(0, 10)}';
-
+ 
       tasks.add(TaskModel.fromLecture(
         id: taskId,
         userId: userId,
-        subjectId: entry.id,
+        subjectId: entry.subjectId.isNotEmpty ? entry.subjectId : entry.id,
         subjectName: entry.subjectName,
         sessionType: entry.sessionType,
         timeSlot: slot.label,
@@ -271,16 +271,13 @@ class TaskSyncService {
         scheduledDate: today,
       ));
     }
-
+ 
     // ─ 2. جلسات المذاكرة ───────────────────────────────────────────────────
-    // جلسات المذاكرة تحمل بالفعل timeSlot و durationMinutes الصحيحَين
-    // لأن StudyPlanService يستخدم ScheduleTimeSettings في توليدها.
-    // المدة تتفاوت حسب الأولوية — قد تكون 60 أو 210 دقيقة أو أي قيمة أخرى.
     final todaySessions = _scheduleController.todaySessions;
-
+ 
     for (final session in todaySessions) {
       final taskId = 'study_${session.id}';
-
+ 
       if (session.status == SessionStatus.skipped) {
         tasks.add(TaskModel.fromStudySession(
           id: taskId,
@@ -295,7 +292,7 @@ class TaskSyncService {
         ).copyWith(status: TaskStatus.missed));
         continue;
       }
-
+ 
       tasks.add(TaskModel.fromStudySession(
         id: taskId,
         userId: userId,
@@ -308,21 +305,20 @@ class TaskSyncService {
         sessionTypeName: session.sessionType.name,
       ));
     }
-
+ 
     // ترتيب المهام حسب وقت البدء
     tasks.sort((a, b) {
       final aMin = _slotStartMin(a.timeSlot ?? '0-0');
       final bMin = _slotStartMin(b.timeSlot ?? '0-0');
       return aMin.compareTo(bMin);
     });
-
+ 
     return tasks;
   }
 
   /// اليوم الحالي → index العمود في الجدول (0=السبت ... 6=الجمعة)
   int _todayColumnIndex(DateTime date) {
-    // DateTime.weekday: Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6, Sun=7
-    // الجدول:            السبت=0, الأحد=1, الاثنين=2, ... الجمعة=6
+
     const weekdayToCol = {6: 0, 7: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6};
     return weekdayToCol[date.weekday] ?? 0;
   }

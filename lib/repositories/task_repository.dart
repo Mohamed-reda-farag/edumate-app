@@ -48,16 +48,19 @@ class TaskRepository {
   Future<void> syncDailyTasks(List<TaskModel> todayTasks) async {
     final batch = _firestore.batch();
 
-    // 1. اقرأ الحالات المكتملة الحالية قبل الحذف
+    // 1. اقرأ الحالات المهمة الحالية قبل الحذف
     final existing = await _dailyTasksCol.get();
-    final completedStatuses = <String, Map<String, dynamic>>{};
+    final savedStatuses = <String, Map<String, dynamic>>{};
 
     for (final doc in existing.docs) {
       final data = doc.data();
       final status = data['status'] as String?;
-      // نحفظ فقط المهام المكتملة (completed) — الباقي يُعاد حسابه
-      if (status == TaskStatus.completed.name) {
-        completedStatuses[doc.id] = {
+      final shouldPreserve =
+          status == TaskStatus.completed.name ||
+          status == TaskStatus.ongoing.name; // ongoing = started في الـ UI
+
+      if (shouldPreserve) {
+        savedStatuses[doc.id] = {
           'status': data['status'],
           if (data['attendanceStatus'] != null)
             'attendanceStatus': data['attendanceStatus'],
@@ -69,20 +72,21 @@ class TaskRepository {
       batch.delete(doc.reference);
     }
 
-    // 2. اكتب مهام اليوم الجديدة مع استعادة الحالات المكتملة
+    // 2. اكتب مهام اليوم الجديدة مع استعادة الحالات المحفوظة
     for (final task in todayTasks) {
       final json = task.toJson();
 
-      // إذا كانت هذه المهمة مكتملة مسبقاً — أعد حالتها
-      final savedStatus = completedStatuses[task.id];
-      if (savedStatus != null) {
-        json['status'] = savedStatus['status'];
-        if (savedStatus['attendanceStatus'] != null) {
-          json['attendanceStatus'] = savedStatus['attendanceStatus'];
+      final saved = savedStatuses[task.id];
+      if (saved != null) {
+        json['status'] = saved['status'];
+        if (saved['attendanceStatus'] != null) {
+          json['attendanceStatus'] = saved['attendanceStatus'];
         }
-        if (savedStatus['studySessionStatus'] != null) {
-          json['studySessionStatus'] = savedStatus['studySessionStatus'];
+        if (saved['studySessionStatus'] != null) {
+          json['studySessionStatus'] = saved['studySessionStatus'];
         }
+        // نحافظ على updatedAt الأصلي لمنع تغيير الـ timestamp
+        json['updatedAt'] = saved['updatedAt'];
       }
 
       batch.set(_dailyTasksCol.doc(task.id), json);
@@ -91,7 +95,8 @@ class TaskRepository {
     await batch.commit();
     debugPrint(
       '[TaskRepository] syncDailyTasks: ${todayTasks.length} tasks'
-      ' (${completedStatuses.length} completed preserved)',
+      ' (${savedStatuses.length} statuses preserved'
+      ' — completed+started)',
     );
   }
 
@@ -124,7 +129,10 @@ class TaskRepository {
   /// تحديث حالة مهمة يومية (تسجيل حضور / إكمال جلسة)
   Future<void> updateDailyTask(TaskModel task) async {
     try {
-      await _dailyTasksCol.doc(task.id).set(task.toJson());
+      await _dailyTasksCol.doc(task.id).set(
+        task.toJson(),
+        SetOptions(merge: true),
+      );
     } catch (e) {
       debugPrint('[TaskRepository] updateDailyTask error: $e');
       rethrow;
@@ -217,9 +225,6 @@ class TaskRepository {
   // ══════════════════════════════════════════════════════════════════════════
 
   /// جلب المهام المخصصة مرتبةً من الأحدث للأقدم.
-  ///
-  /// ملاحظة: يتطلب Firestore index على:
-  /// Collection: custom_tasks | Field: createdAt | Direction: Descending
   Future<List<TaskModel>> getCustomTasks() async {
     try {
       final snap = await _customTasksCol
@@ -262,10 +267,12 @@ class TaskRepository {
   }
 
   /// تحديث مهمة مخصصة كاملة.
-
   Future<void> updateCustomTask(TaskModel task) async {
     try {
-      await _customTasksCol.doc(task.id).set(task.toJson());
+      await _customTasksCol.doc(task.id).set(
+        task.toJson(),
+        SetOptions(merge: true),
+      );
     } catch (e) {
       debugPrint('[TaskRepository] updateCustomTask error: $e');
       rethrow;

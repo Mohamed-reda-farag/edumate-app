@@ -111,7 +111,8 @@ class SemesterRepository {
         .listen(
       (snap) {
         if (snap.docs.isEmpty) {
-          if (!controller.isClosed) controller.add(null);
+          final cached = _loadFromCache(uid);
+          if (!controller.isClosed) controller.add(cached);
           return;
         }
         try {

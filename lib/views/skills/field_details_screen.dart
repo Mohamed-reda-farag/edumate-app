@@ -49,10 +49,7 @@ class _FieldDetailsScreenState extends State<FieldDetailsScreen>
           }
 
           if (field == null) {
-            return _ErrorScaffold(
-              onRetry: _loadField,
-              fieldId: widget.fieldId,
-            );
+            return _ErrorScaffold(onRetry: _loadField, fieldId: widget.fieldId);
           }
 
           return _FieldDetailsContent(
@@ -91,10 +88,11 @@ class _FieldDetailsContent extends StatelessWidget {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) => [
-          _buildSliverAppBar(context, progress),
-          _buildTabBar(),
-        ],
+        headerSliverBuilder:
+            (context, innerBoxIsScrolled) => [
+              _buildSliverAppBar(context, progress),
+              _buildTabBar(),
+            ],
         body: TabBarView(
           controller: tabController,
           children: [
@@ -171,7 +169,9 @@ class _FieldDetailsContent extends StatelessWidget {
                               Text(
                                 field.nameEn,
                                 style: const TextStyle(
-                                    color: Colors.white70, fontSize: 13),
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                ),
                               ),
                             ],
                           ),
@@ -203,11 +203,14 @@ class _FieldDetailsContent extends StatelessWidget {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Text('$progress%',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15)),
+                        Text(
+                          '$progress%',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: ClipRRect(
@@ -216,7 +219,8 @@ class _FieldDetailsContent extends StatelessWidget {
                               value: progress / 100,
                               backgroundColor: Colors.white30,
                               valueColor: const AlwaysStoppedAnimation<Color>(
-                                  Colors.white),
+                                Colors.white,
+                              ),
                               minHeight: 6,
                             ),
                           ),
@@ -258,8 +262,11 @@ class _HeaderChip extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
-  const _HeaderChip(
-      {required this.icon, required this.label, required this.color});
+  const _HeaderChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -275,7 +282,14 @@ class _HeaderChip extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 12),
           const SizedBox(width: 4),
-          Text(label, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -289,10 +303,7 @@ class _OverviewTab extends StatelessWidget {
   final FieldModel field;
   final String fieldId;
 
-  const _OverviewTab({
-    required this.field,
-    required this.fieldId,
-  });
+  const _OverviewTab({required this.field, required this.fieldId});
 
   int _getActiveSkills(GlobalLearningState state) =>
       state.getActiveSkills(fieldId: fieldId).length;
@@ -368,9 +379,11 @@ class _OverviewTab extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 child: LinearProgressIndicator(
                   value: field.demandLevel / 100,
-                  backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  backgroundColor:
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
                   valueColor: const AlwaysStoppedAnimation<Color>(
-                      Color(0xFF2ECC71)),
+                    Color(0xFF2ECC71),
+                  ),
                   minHeight: 10,
                 ),
               ),
@@ -398,26 +411,30 @@ class _OverviewTab extends StatelessWidget {
           title: 'المسارات الوظيفية',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: field.careerPaths
-                .map(
-                  (path) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.arrow_left,
-                            color: Color(0xFF6C63FF), size: 20),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            path,
-                            style: const TextStyle(fontSize: 14),
-                          ),
+            children:
+                field.careerPaths
+                    .map(
+                      (path) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.arrow_left,
+                              color: Color(0xFF6C63FF),
+                              size: 20,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                path,
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
-                )
-                .toList(),
+                      ),
+                    )
+                    .toList(),
           ),
         ),
       ],
@@ -450,7 +467,7 @@ class _StatCard extends StatelessWidget {
             color: Colors.black.withOpacity(0.05),
             blurRadius: 6,
             offset: const Offset(0, 2),
-          )
+          ),
         ],
       ),
       child: Column(
@@ -494,7 +511,7 @@ class _SectionCard extends StatelessWidget {
             color: Colors.black.withOpacity(0.05),
             blurRadius: 6,
             offset: const Offset(0, 2),
-          )
+          ),
         ],
       ),
       child: Column(
@@ -566,8 +583,7 @@ class _SalaryTab extends StatelessWidget {
               Expanded(
                 child: Text(
                   'الأرقام تقريبية وقد تختلف حسب الشركة والموقع الجغرافي',
-                  style:
-                      TextStyle(color: Colors.blue.shade700, fontSize: 12),
+                  style: TextStyle(color: Colors.blue.shade700, fontSize: 12),
                 ),
               ),
             ],
@@ -605,7 +621,7 @@ class _SalaryCard extends StatelessWidget {
             color: Colors.black.withOpacity(0.05),
             blurRadius: 6,
             offset: const Offset(0, 2),
-          )
+          ),
         ],
       ),
       child: Row(
@@ -651,8 +667,10 @@ class _SalaryCard extends StatelessWidget {
                   fontSize: 14,
                 ),
               ),
-              const Text('شهرياً',
-                  style: TextStyle(color: Colors.grey, fontSize: 11)),
+              const Text(
+                'شهرياً',
+                style: TextStyle(color: Colors.grey, fontSize: 11),
+              ),
             ],
           ),
         ],
@@ -716,7 +734,7 @@ class _CompaniesSection extends StatelessWidget {
             color: Colors.black.withOpacity(0.05),
             blurRadius: 6,
             offset: const Offset(0, 2),
-          )
+          ),
         ],
       ),
       child: Column(
@@ -740,18 +758,23 @@ class _CompaniesSection extends StatelessWidget {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: companies
-                .map((company) => Chip(
-                      label: Text(
-                        company,
-                        style: TextStyle(color: color, fontSize: 12),
+            children:
+                companies
+                    .map(
+                      (company) => Chip(
+                        label: Text(
+                          company,
+                          style: TextStyle(color: color, fontSize: 12),
+                        ),
+                        backgroundColor: color.withOpacity(0.08),
+                        side: BorderSide(color: color.withOpacity(0.25)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 0,
+                        ),
                       ),
-                      backgroundColor: color.withOpacity(0.08),
-                      side: BorderSide(color: color.withOpacity(0.25)),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 4, vertical: 0),
-                    ))
-                .toList(),
+                    )
+                    .toList(),
           ),
         ],
       ),
@@ -782,8 +805,9 @@ class _RoadmapButton extends StatelessWidget {
           backgroundColor: const Color(0xFF6C63FF),
           foregroundColor: Colors.white,
           minimumSize: const Size(double.infinity, 52),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           elevation: 0,
         ),
       ),
@@ -805,7 +829,10 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(
-      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: tabBar,
@@ -831,8 +858,13 @@ class _LoadingScaffold extends StatelessWidget {
           children: [
             const CircularProgressIndicator(color: Color(0xFF6C63FF)),
             const SizedBox(height: 16),
-            Text('جارٍ التحميل...',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+            Text(
+              'جارٍ التحميل...',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 14,
+              ),
+            ),
           ],
         ),
       ),
@@ -861,9 +893,10 @@ class _ErrorScaffold extends StatelessWidget {
           children: [
             const Icon(Icons.error_outline, size: 64, color: Color(0xFFFF6B6B)),
             const SizedBox(height: 16),
-            const Text('لم يتم العثور على المجال',
-                style:
-                    TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text(
+              'لم يتم العثور على المجال',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: onRetry,

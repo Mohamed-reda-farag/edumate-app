@@ -25,11 +25,6 @@ class _CompletedCoursesScreenState extends State<CompletedCoursesScreen> {
   // ── static لتجنب إنشاء DateFormat جديد في كل بطاقة ──────────────────────
   static final _dateFormat = DateFormat('d MMMM yyyy', 'ar');
 
-@override
-  void initState() {
-    super.initState();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Directionality(

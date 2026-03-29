@@ -111,7 +111,7 @@ class Achievement {
     Achievement(
       id: 'attendance_10',
       titleAr: 'طالب منتظم',
-      descriptionAr: 'احضر 10 محاضرات متتالية',
+      descriptionAr: 'احضر 10 أيام متتالية',
       pointsReward: 100,
       type: AchievementType.attendance,
       requiredValue: 10,

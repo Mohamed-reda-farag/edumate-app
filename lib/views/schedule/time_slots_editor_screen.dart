@@ -193,7 +193,7 @@ class _TimeSlotsEditorScreenState extends State<TimeSlotsEditorScreen> {
                             ? '${dur ~/ 60}س${dur % 60 > 0 ? " ${dur % 60}د" : ""}'
                             : '$durد';
                         return Card(
-                          key: ValueKey('slot_$i'),
+                          key: ValueKey('${slot.startHour}_${slot.startMinute}_${slot.endHour}_${slot.endMinute}'),
                           margin: const EdgeInsets.only(bottom: 8),
                           child: ListTile(
                             onTap: () => _editSlot(i),

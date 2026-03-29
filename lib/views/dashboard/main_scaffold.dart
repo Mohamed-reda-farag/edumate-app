@@ -17,9 +17,9 @@ class MainScaffold extends StatelessWidget {
   }
 
   Widget _buildBottomNavBar(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final navBgColor = isDark ? Theme.of(context).colorScheme.surface : Colors.white;
-    final borderColor = isDark ? Theme.of(context).dividerColor : const Color(0xFFEEEEF5);
+    final colorScheme = Theme.of(context).colorScheme;
+    final navBgColor = colorScheme.surface;
+    final borderColor = colorScheme.outlineVariant;
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -57,7 +57,7 @@ class MainScaffold extends StatelessWidget {
           type: BottomNavigationBarType.fixed,
           backgroundColor: navBgColor,
           selectedItemColor: const Color(0xFF6C63FF),
-          unselectedItemColor: const Color(0xFFB0B0C3),
+          unselectedItemColor: Theme.of(context).colorScheme.onSurfaceVariant,
           selectedFontSize: 11,
           unselectedFontSize: 10,
           elevation: 0,
